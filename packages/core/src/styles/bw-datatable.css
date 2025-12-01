@@ -1,0 +1,526 @@
+/**
+ * ============================================================================
+ * Black & White UI Engineering
+ * BWDataTable - Main Styles
+ * ============================================================================
+ * 
+ * Core styles for the data table component.
+ * 
+ * Structure:
+ *   .bw-datatable
+ *     .bw-datatable__toolbar
+ *     .bw-datatable__wrapper
+ *       .bw-datatable__table
+ *         .bw-datatable__header
+ *         .bw-datatable__body
+ *     .bw-datatable__footer
+ *     .bw-datatable__overlay
+ * 
+ * @version 1.0.0
+ * @license MIT
+ * ============================================================================
+ */
+
+@import './bw-variables.css';
+
+/* ==========================================================================
+   Container
+   ========================================================================== */
+
+.bw-datatable {
+  position: relative;
+  width: 100%;
+  font-family: var(--bw-dt-font-family);
+  font-size: var(--bw-dt-font-size);
+  line-height: var(--bw-dt-line-height);
+  color: var(--bw-dt-text);
+  background: var(--bw-dt-bg);
+  border: 1px solid var(--bw-dt-border);
+  border-radius: var(--bw-dt-border-radius);
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   Toolbar (search, filters, actions)
+   ========================================================================== */
+
+.bw-datatable__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--bw-dt-spacing-md);
+  padding: var(--bw-dt-spacing-md);
+  background: var(--bw-dt-bg);
+  border-bottom: 1px solid var(--bw-dt-border);
+}
+
+.bw-datatable__toolbar:empty {
+  display: none;
+}
+
+/* ==========================================================================
+   Table Wrapper (handles overflow/scroll)
+   ========================================================================== */
+
+.bw-datatable__wrapper {
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+/* ==========================================================================
+   Table
+   ========================================================================== */
+
+.bw-datatable__table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.bw-datatable__header {
+  background: var(--bw-dt-header-bg);
+}
+
+.bw-datatable__th {
+  padding: var(--bw-dt-cell-padding);
+  text-align: left;
+  font-weight: 600;
+  color: var(--bw-dt-header-text);
+  border-bottom: 2px solid var(--bw-dt-header-border);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.bw-datatable__th--sortable {
+  cursor: pointer;
+  transition: background var(--bw-dt-transition);
+}
+
+.bw-datatable__th--sortable:hover {
+  background: var(--bw-dt-row-hover);
+}
+
+.bw-datatable__th-content {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--bw-dt-spacing-sm);
+}
+
+/* Sort indicator */
+.bw-datatable__th-sort {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  opacity: 0.3;
+  transition: opacity var(--bw-dt-transition);
+}
+
+.bw-datatable__th-sort::after {
+  content: '⇅';
+  color: var(--bw-dt-sort-icon);
+}
+
+.bw-datatable__th--sortable:hover .bw-datatable__th-sort {
+  opacity: 0.6;
+}
+
+.bw-datatable__th--sort-asc .bw-datatable__th-sort::after {
+  content: '↑';
+  color: var(--bw-dt-sort-active);
+}
+
+.bw-datatable__th--sort-desc .bw-datatable__th-sort::after {
+  content: '↓';
+  color: var(--bw-dt-sort-active);
+}
+
+.bw-datatable__th--sort-asc .bw-datatable__th-sort,
+.bw-datatable__th--sort-desc .bw-datatable__th-sort {
+  opacity: 1;
+}
+
+/* Checkbox column */
+.bw-datatable__th--checkbox,
+.bw-datatable__td--checkbox {
+  width: 50px;
+  min-width: 48px;
+  max-width: 50px;
+  text-align: center;
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   Body
+   ========================================================================== */
+
+.bw-datatable__body {
+  background: var(--bw-dt-row-bg);
+}
+
+.bw-datatable__row {
+  transition: background var(--bw-dt-transition);
+}
+
+.bw-datatable__td {
+  padding: var(--bw-dt-cell-padding);
+  border-bottom: 1px solid var(--bw-dt-cell-border);
+  vertical-align: middle;
+}
+
+/* Row states */
+.bw-datatable--hoverable .bw-datatable__row:hover {
+  background: var(--bw-dt-row-hover);
+}
+
+.bw-datatable__row--selected {
+  background: var(--bw-dt-row-selected) !important;
+}
+
+/* Striped rows */
+.bw-datatable--striped .bw-datatable__row:nth-child(even) {
+  background: var(--bw-dt-row-stripe);
+}
+
+.bw-datatable--striped .bw-datatable__row:nth-child(even):hover {
+  background: var(--bw-dt-row-hover);
+}
+
+/* Bordered */
+.bw-datatable--bordered .bw-datatable__td,
+.bw-datatable--bordered .bw-datatable__th {
+  border: 1px solid var(--bw-dt-cell-border);
+}
+
+/* Empty state */
+.bw-datatable__row--empty td {
+  padding: var(--bw-dt-spacing-lg);
+  text-align: center;
+  color: var(--bw-dt-text-secondary);
+  font-style: italic;
+}
+
+/* ==========================================================================
+   Footer (pagination)
+   ========================================================================== */
+
+.bw-datatable__footer {
+  background: var(--bw-dt-pagination-bg);
+  border-top: 1px solid var(--bw-dt-pagination-border);
+}
+
+.bw-datatable__footer:empty {
+  display: none;
+}
+
+.bw-datatable__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--bw-dt-spacing-md);
+  gap: var(--bw-dt-spacing-md);
+}
+
+.bw-datatable__pagination-info {
+  color: var(--bw-dt-text-secondary);
+  font-size: var(--bw-dt-font-size-sm);
+}
+
+.bw-datatable__pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--bw-dt-spacing-sm);
+}
+
+.bw-datatable__pagination-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 var(--bw-dt-spacing-sm);
+  font-size: var(--bw-dt-font-size);
+  color: var(--bw-dt-text);
+  background: var(--bw-dt-pagination-btn-bg);
+  border: 1px solid var(--bw-dt-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--bw-dt-transition);
+}
+
+.bw-datatable__pagination-btn:hover:not(:disabled) {
+  background: var(--bw-dt-pagination-btn-hover);
+}
+
+.bw-datatable__pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bw-datatable__pagination-pages {
+  padding: 0 var(--bw-dt-spacing-sm);
+  font-size: var(--bw-dt-font-size-sm);
+  color: var(--bw-dt-text-secondary);
+}
+
+/* ==========================================================================
+   Overlay (loading, empty)
+   ========================================================================== */
+
+.bw-datatable__overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  background: var(--bw-dt-overlay-bg);
+  z-index: 10;
+}
+
+.bw-datatable__overlay--visible {
+  display: flex;
+}
+
+/* ==========================================================================
+   Checkbox Styling
+   ========================================================================== */
+
+.bw-datatable input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--bw-dt-primary);
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 640px) {
+  .bw-datatable__pagination {
+    flex-direction: column;
+    gap: var(--bw-dt-spacing-sm);
+  }
+
+  .bw-datatable__th,
+  .bw-datatable__td {
+    padding: var(--bw-dt-spacing-sm) var(--bw-dt-spacing-md);
+  }
+}
+
+/* ==========================================================================
+   Editing
+   ========================================================================== */
+
+.bw-datatable__td--editing {
+  padding: 4px 8px;
+  background: var(--bw-dt-bg) !important;
+}
+
+.bw-datatable__edit-input,
+.bw-datatable__edit-select {
+  width: 100%;
+  padding: 8px;
+  font-size: var(--bw-dt-font-size);
+  font-family: var(--bw-dt-font-family);
+  color: var(--bw-dt-text);
+  background: var(--bw-dt-bg);
+  border: 2px solid var(--bw-dt-primary);
+  border-radius: 4px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.bw-datatable__edit-input:focus,
+.bw-datatable__edit-select:focus {
+  border-color: var(--bw-dt-primary-hover);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.bw-datatable__edit-input--invalid {
+  border-color: #ef4444;
+  background: #fef2f2;
+}
+
+.bw-datatable__edit-checkbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--bw-dt-primary);
+}
+
+/* Dark theme edit styles */
+.bw-datatable--dark .bw-datatable__edit-input,
+.bw-datatable--dark .bw-datatable__edit-select {
+  background: var(--bw-dt-bg-secondary);
+  border-color: var(--bw-dt-primary);
+}
+
+.bw-datatable--dark .bw-datatable__edit-input--invalid {
+  border-color: #f87171;
+  background: #450a0a;
+}
+
+/* ==========================================================================
+   Column Resize
+   ========================================================================== */
+
+.bw-datatable__th {
+  position: relative;
+}
+
+.bw-datatable__resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 1;
+}
+
+.bw-datatable__resize-handle:hover {
+  background: var(--bw-dt-primary);
+  opacity: 0.3;
+}
+
+.bw-datatable__resize-handle:active {
+  background: var(--bw-dt-primary);
+  opacity: 0.5;
+}
+
+/* While resizing */
+.bw-datatable--resizing {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+.bw-datatable--resizing * {
+  cursor: col-resize !important;
+}
+
+.bw-datatable--resizing .bw-datatable__th {
+  transition: none;
+}
+
+/* ==========================================================================
+   Table Layout - Allow column shrink
+   ========================================================================== */
+
+.bw-datatable__table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  table-layout: fixed; /* IMPORTANT: Allow columns to shrink */
+}
+
+.bw-datatable__th,
+.bw-datatable__td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+   Keyboard Navigation / Focus
+   ========================================================================== */
+
+.bw-datatable:focus {
+  outline: none;
+}
+
+.bw-datatable__td--focused {
+  outline: 2px solid var(--bw-dt-primary);
+  outline-offset: -2px;
+  background: var(--bw-dt-row-hover);
+}
+
+/* Dark theme focus */
+.bw-datatable--dark .bw-datatable__td--focused {
+  outline-color: var(--bw-dt-primary);
+  background: var(--bw-dt-row-hover);
+}
+
+/* ==========================================================================
+   Overlay States (Loading, Error)
+   ========================================================================== */
+
+.bw-datatable__overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  background: var(--bw-dt-overlay-bg);
+  z-index: 10;
+}
+
+.bw-datatable__overlay--visible {
+  display: flex;
+}
+
+.bw-datatable__overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--bw-dt-spacing-md);
+  padding: var(--bw-dt-spacing-lg);
+  background: var(--bw-dt-bg);
+  border-radius: var(--bw-dt-border-radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.bw-datatable__overlay-text {
+  font-size: var(--bw-dt-font-size);
+  color: var(--bw-dt-text);
+}
+
+/* Loading Spinner */
+.bw-datatable__spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--bw-dt-border);
+  border-top-color: var(--bw-dt-primary);
+  border-radius: 50%;
+  animation: bw-spin 0.8s linear infinite;
+}
+
+@keyframes bw-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Error State */
+.bw-datatable__overlay--error .bw-datatable__overlay-text {
+  color: #ef4444;
+}
+
+.bw-datatable__error-icon {
+  font-size: 32px;
+}
+
+/* ==========================================================================
+   Empty State
+   ========================================================================== */
+
+.bw-datatable__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--bw-dt-spacing-sm);
+  padding: var(--bw-dt-spacing-lg);
+}
+
+.bw-datatable__empty-icon {
+  font-size: 48px;
+  opacity: 0.5;
+}
+
+.bw-datatable__empty-text {
+  color: var(--bw-dt-text-secondary);
+  font-style: italic;
+}

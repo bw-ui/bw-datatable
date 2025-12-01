@@ -1,0 +1,23 @@
+{
+  "name": "bw-datatable-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BWDataTable monorepo - Production-ready data table with plugin architecture",
+  "workspaces": [
+    "packages/core",
+    "packages/plugins/*"
+  ],
+  "scripts": {
+    "build": "npm run build:core && npm run build:plugins",
+    "build:core": "cd packages/core && npm run build",
+    "build:plugins": "cd packages/plugins/history && npm run build",
+    "dev": "npm run dev:core",
+    "dev:core": "cd packages/core && npm run dev"
+  },
+  "author": "Black & White UI Engineering",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bw-ui/datatable.git"
+  }
+}

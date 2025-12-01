@@ -1,0 +1,48 @@
+{
+  "name": "@bw-ui/datatable-history",
+  "version": "1.0.0",
+  "description": "Undo/Redo plugin for @bw-ui/datatable",
+  "type": "module",
+  "main": "dist/history.min.js",
+  "module": "dist/history.esm.min.js",
+  "types": "types.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/history.esm.min.js",
+      "require": "./dist/history.min.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src/index.d.ts"
+  ],
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js --watch"
+  },
+  "keywords": [
+    "bw-ui",
+    "datatable",
+    "plugin",
+    "undo",
+    "redo",
+    "history"
+  ],
+  "author": "Black & White UI Engineering",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bw-ui/bw-datatable.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://bw-ui.dev/bw-datatable",
+  "bugs": {
+    "url": "https://github.com/bw-ui/bw-datatable/issues"
+  },
+  "peerDependencies": {
+    "@bw-ui/datatable": "^1.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "name": "@bw-ui/datatable",
+  "version": "1.0.0",
+  "description": "Production-ready data table with plugin architecture. Zero dependencies.",
+  "type": "module",
+  "main": "dist/bw-datatable.min.js",
+  "module": "dist/bw-datatable.esm.min.js",
+  "types": "dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/bw-datatable.esm.min.js",
+      "require": "./dist/bw-datatable.min.js",
+      "types": "./dist/types/index.d.ts"
+    },
+    "./css": "./dist/bw-datatable.min.css"
+  },
+  "files": [
+    "dist",
+    "src/index.d.ts"
+  ],
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js --watch"
+  },
+  "keywords": [
+    "datatable",
+    "table",
+    "grid",
+    "data-grid",
+    "vanilla-js",
+    "no-dependencies",
+    "plugin-architecture",
+    "bw-ui"
+  ],
+  "author": "Black & White UI Engineering",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bw-ui/bw-datatable.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://bw-ui.dev/bw-datatable",
+  "bugs": {
+    "url": "https://github.com/bw-ui/bw-datatable/issues"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}

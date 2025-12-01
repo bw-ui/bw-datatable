@@ -1,0 +1,49 @@
+{
+  "name": "@bw-ui/datatable-url-state",
+  "version": "1.0.0",
+  "description": "URL state sync plugin for @bw-ui/datatable",
+  "type": "module",
+  "main": "dist/url-state.min.js",
+  "module": "dist/url-state.esm.min.js",
+  "types": "types.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/url-state.esm.min.js",
+      "require": "./dist/url-state.min.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src/index.d.ts"
+  ],
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js --watch"
+  },
+  "keywords": [
+    "bw-ui",
+    "datatable",
+    "plugin",
+    "url",
+    "state",
+    "query-string",
+    "history"
+  ],
+  "author": "Black & White UI Engineering",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bw-ui/bw-datatable.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://bw-ui.dev/bw-datatable",
+  "bugs": {
+    "url": "https://github.com/bw-ui/bw-datatable/issues"
+  },
+  "peerDependencies": {
+    "@bw-ui/datatable": "^1.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "name": "@bw-ui/datatable-export",
+  "version": "1.0.0",
+  "description": "Export plugin for @bw-ui/datatable - JSON, CSV, Clipboard",
+  "type": "module",
+  "main": "dist/export.min.js",
+  "module": "dist/export.esm.min.js",
+  "types": "types.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/export.esm.min.js",
+      "require": "./dist/export.min.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src/index.d.ts"
+  ],
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js --watch"
+  },
+  "keywords": [
+    "bw-ui",
+    "datatable",
+    "plugin",
+    "export",
+    "csv",
+    "json",
+    "clipboard"
+  ],
+  "author": "Black & White UI Engineering",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bw-ui/bw-datatable.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://bw-ui.dev/bw-datatable",
+  "bugs": {
+    "url": "https://github.com/bw-ui/bw-datatable/issues"
+  },
+  "peerDependencies": {
+    "@bw-ui/datatable": "^1.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}

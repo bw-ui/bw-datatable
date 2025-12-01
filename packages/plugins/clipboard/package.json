@@ -1,0 +1,49 @@
+{
+  "name": "@bw-ui/datatable-clipboard",
+  "version": "1.0.0",
+  "description": "Copy/Paste plugin for @bw-ui/datatable - Excel compatible",
+  "type": "module",
+  "main": "dist/clipboard.min.js",
+  "module": "dist/clipboard.esm.min.js",
+  "types": "types.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/clipboard.esm.min.js",
+      "require": "./dist/clipboard.min.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src/index.d.ts"
+  ],
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js --watch"
+  },
+  "keywords": [
+    "bw-ui",
+    "datatable",
+    "plugin",
+    "clipboard",
+    "copy",
+    "paste",
+    "excel"
+  ],
+  "author": "Black & White UI Engineering",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bw-ui/bw-datatable.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://bw-ui.dev/bw-datatable",
+  "bugs": {
+    "url": "https://github.com/bw-ui/bw-datatable/issues"
+  },
+  "peerDependencies": {
+    "@bw-ui/datatable": "^1.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0"
+  }
+}
