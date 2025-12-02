@@ -1,156 +1,77 @@
 /**
- * ============================================================================
- * Black & White UI Engineering
- * BWDataTable - Main Class
- * ============================================================================
+ * BWDataTable v3.0
  *
- * Production-ready data table with plugin architecture.
+ * Simple, fast, virtual scrolling data table.
  *
- * Features:
- * - Zero dependencies, vanilla JS
- * - Event-driven plugin architecture
- * - Virtual scroll ready
- * - Sort, filter, pagination, selection, editing
- * - Auto-detect columns from data
- * - Nested data support (dot notation)
- *
- * Usage:
- *   const table = new BWDataTable('#table', {
- *     data: [...],
- *     columns: [...],
- *   });
- *
- *   table.use(VirtualPlugin);
- *   table.use(UndoPlugin, { maxHistory: 50 });
- *
- * @module core/BWDataTable
- * @version 1.0.1
- * @license MIT
- * ============================================================================
+ * Architecture:
+ * - Data: Plain array in memory (100k rows = ~10MB, fine)
+ * - DOM: Only renders visible rows + buffer (~70 rows)
+ * - Scroll: Recalculate window, update DOM
+ * - Sort/Filter: Direct array operations, then re-render window
  */
 
-import EventBus from './EventBus.js';
-import StateManager from './StateManager.js';
-import PluginSystem from './PluginSystem.js';
+class BWDataTable {
+  // ==========================================================================
+  // PRIVATE FIELDS
+  // ==========================================================================
 
-/**
- * Default options
- */
-const DEFAULTS = {
-  // Data
-  data: [],
-  dataPath: null, // Path to array in data object (e.g., 'results.items')
-  totalPath: null, // Path to total count (e.g., 'results.total')
-  rowId: 'id', // Field to use as row ID, or function
+  /** @type {HTMLElement} */
+  #container = null;
 
-  // Columns
-  columns: null, // null = auto-detect from data
+  /** @type {Array} Raw data array */
+  #data = [];
 
-  // Features (can disable)
-  sortable: true,
-  filterable: true,
-  selectable: true,
-  editable: false,
-  paginated: true,
+  /** @type {Array} Filtered/sorted view (indices into #data) */
+  #view = [];
 
-  // Pagination
-  page: 0,
-  pageSize: 20,
-  pageSizes: [10, 20, 50, 100],
+  /** @type {Array} Column definitions */
+  #columns = [];
 
-  // Selection
-  selectionMode: 'multi', // 'single' | 'multi' | 'none'
+  /** @type {Object} Options */
+  #options = {};
 
-  // Styling
-  theme: 'light', // 'light' | 'dark' | 'auto'
-  striped: true,
-  bordered: true,
-  hoverable: true,
+  /** @type {Set<string>} Selected row IDs */
+  #selected = new Set();
 
-  // Classes
-  containerClass: '',
-  tableClass: '',
+  /** @type {Object} Current sort state */
+  #sort = { column: null, direction: null };
 
-  // Editing
-  editOnClick: false, // Single click to edit (default: double-click)
-  editableColumns: null, // Array of column IDs, null = all (if editable: true)
+  /** @type {string} Current global filter */
+  #globalFilter = '';
 
-  // Column Resize
-  resizable: true, // Enable column resize
-  minColumnWidth: 50, // Minimum column width (px)
-  maxColumnWidth: null, // Maximum column width (px), null = no limit
+  /** @type {Object} Column filters */
+  #columnFilters = {};
 
-  // Keyboard
-  keyboardNavigation: true, // Enable keyboard navigation
+  // Scroll state
+  #scrollTop = 0;
+  #viewportHeight = 0;
+  #rowHeight = 40;
+  #bufferSize = 20;
 
-  // States
-  loading: false, // Show loading overlay
-  loadingText: 'Loading...', // Loading message
-  emptyText: 'No data available', // Empty state message
-  errorText: null, // Error message (null = no error)
+  // DOM references
+  #wrapper = null;
+  #table = null;
+  #thead = null;
+  #tbody = null;
+  #scrollContainer = null;
+  #heightSpacer = null;
 
-  // Callbacks
-  onReady: null,
-  onSort: null,
-  onFilter: null,
-  onSelect: null,
-  onEdit: null,
-  onPageChange: null,
-  onError: null,
-  onEditStart: null, // (rowId, columnId, value) => {}
-  onEditEnd: null, // (rowId, columnId, value, oldValue) => {}
-  onEditCancel: null, // (rowId, columnId) => {}
-};
+  // Current render range
+  #renderedRange = { start: 0, end: 0 };
 
-export class BWDataTable {
-  /** @type {HTMLElement} - Container element */
-  #container;
+  // Event callbacks
+  #eventHandlers = {};
 
-  /** @type {Object} - Merged options */
-  #options;
+  // Plugins
+  #plugins = [];
 
-  /** @type {EventBus} - Central event hub */
-  #eventBus;
-
-  /** @type {StateManager} - State management */
-  #stateManager;
-
-  /** @type {PluginSystem} - Plugin management */
-  #pluginSystem;
-
-  /** @type {Object} - DOM slot references */
-  #slots = {
-    toolbar: null,
-    header: null,
-    body: null,
-    footer: null,
-    overlay: null,
-  };
-
-  /** @type {boolean} - Initialization flag */
-  #initialized = false;
+  // ==========================================================================
+  // CONSTRUCTOR
+  // ==========================================================================
 
   /**
-   * Create a new DataTable
-   *
    * @param {string|HTMLElement} selector - Container selector or element
    * @param {Object} options - Configuration options
-   *
-   * @example
-   *   // Simple
-   *   new BWDataTable('#table', { data: [...] });
-   *
-   *   // Full config
-   *   new BWDataTable('#table', {
-   *     data: apiResponse,
-   *     dataPath: 'results.items',
-   *     columns: [
-   *       { id: 'name', header: 'Name' },
-   *       { id: 'age', header: 'Age', type: 'number' },
-   *     ],
-   *     sortable: true,
-   *     pageSize: 25,
-   *   });
    */
   constructor(selector, options = {}) {
     // Get container
@@ -163,2262 +84,1690 @@ export class BWDataTable {
       throw new Error(`BWDataTable: Container "${selector}" not found`);
     }
 
-    // Merge options
-    this.#options = { ...DEFAULTS, ...options };
+    // Default options
+    this.#options = {
+      data: [],
+      columns: null, // Auto-detect if not provided
+      rowHeight: 40, // Fixed row height in pixels
+      bufferSize: 20, // Extra rows above/below viewport
+      rowId: 'id', // Field to use as row ID
+      sortable: true,
+      filterable: true,
+      selectable: true,
+      editable: true, // Enable inline cell editing
+      resizable: true,
+      ...options,
+    };
 
-    // Initialize core systems
-    this.#eventBus = new EventBus();
-    this.#stateManager = new StateManager(this.#eventBus);
-    this.#pluginSystem = new PluginSystem(this.#eventBus);
+    this.#rowHeight = this.#options.rowHeight;
+    this.#bufferSize = this.#options.bufferSize;
 
-    // Setup plugin API
-    this.#pluginSystem.setAPI(this.#createPluginAPI());
+    // Editing state
+    this.#editingCell = null; // { rowId, columnId, rowIndex, colIndex }
+    this.#focusedCell = null; // { rowIndex, colIndex }
 
     // Initialize
     this.#init();
   }
 
+  // Editing state
+  #editingCell = null;
+  #focusedCell = null;
+  #skipBlurSave = false;
+
+  // Column resizing state
+  #columnWidths = new Map();
+  #resizing = null; // { columnId, startX, startWidth }
+
+  // Threshold for showing loader
+  #loaderThreshold = 10000;
+
+  // Loader element
+  #loader = null;
+
+  // ==========================================================================
+  // LOADER
+  // ==========================================================================
+
+  #createLoader() {
+    this.#loader = document.createElement('div');
+    this.#loader.className = 'bw-datatable__loading';
+    this.#loader.innerHTML = '<div class="bw-datatable__spinner"></div>';
+    this.#wrapper.appendChild(this.#loader);
+  }
+
+  #showLoader() {
+    if (this.#loader) {
+      this.#loader.classList.add('bw-datatable__loading--visible');
+    }
+  }
+
+  #hideLoader() {
+    if (this.#loader) {
+      this.#loader.classList.remove('bw-datatable__loading--visible');
+    }
+  }
+
   /**
-   * Initialize the DataTable
-   * @private
+   * Execute operation with loader if data is large
+   * @param {Function} operation - The operation to run
    */
+  #withLoader(operation) {
+    const needsLoader = this.#data.length > this.#loaderThreshold;
+
+    if (needsLoader) {
+      this.#showLoader();
+      // Use setTimeout to let loader paint first
+      setTimeout(() => {
+        operation();
+        this.#hideLoader();
+      }, 10);
+    } else {
+      // Small data - just run directly
+      operation();
+    }
+  }
+
+  // ==========================================================================
+  // INITIALIZATION
+  // ==========================================================================
+
   #init() {
-    // Extract data from source
-    const data = this.#extractData(this.#options.data);
+    // 1. Load data
+    this.#data = this.#options.data || [];
 
-    // Auto-detect or validate columns
-    const columns = this.#options.columns || this.#autoDetectColumns(data);
+    // 2. Create initial view (all rows, original order)
+    this.#view = this.#data.map((_, i) => i);
 
-    // Set initial state
-    this.#stateManager.setState(
-      {
-        data: data,
-        rows: [...data],
-        columns: columns,
-        columnOrder: columns.map((c) => c.id),
-        page: this.#options.page,
-        pageSize: this.#options.pageSize,
-        selectionMode: this.#options.selectionMode,
-        totalRows: data.length,
-        focusedCell: null, // { rowId, columnId }
-        isLoading: this.#options.loading,
-        error: this.#options.errorText,
-      },
-      { silent: true, track: false }
-    );
+    // 3. Auto-detect columns if not provided
+    this.#columns = this.#options.columns || this.#autoDetectColumns();
 
-    // Create DOM structure
+    // 4. Create DOM structure
     this.#createDOM();
 
-    // Bind internal events
+    // 5. Create loader
+    this.#createLoader();
+
+    // 6. Bind events
     this.#bindEvents();
 
-    // Mark initialized
-    this.#initialized = true;
-
-    // Emit ready
-    this.#eventBus.emit('table:ready', { table: this });
-
-    // Callback
-    if (this.#options.onReady) {
-      this.#options.onReady(this);
-    }
-
-    // Initial render
-    this.render();
+    // 7. Initial render
+    this.#calculateViewport();
+    this.#render(true);
   }
 
-  /**
-   * Extract data array from source (handles dataPath)
-   * @private
-   * @param {Array|Object} source - Data source
-   * @returns {Array} Data array
-   */
-  #extractData(source) {
-    if (!source) return [];
+  #autoDetectColumns() {
+    if (this.#data.length === 0) return [];
 
-    // Direct array
-    if (Array.isArray(source)) return source;
-
-    // Extract from path
-    if (this.#options.dataPath) {
-      return this.#getNestedValue(source, this.#options.dataPath) || [];
-    }
-
-    return [];
-  }
-
-  /**
-   * Get nested value using dot notation
-   * @private
-   * @param {Object} obj - Source object
-   * @param {string} path - Dot notation path
-   * @returns {*} Value at path
-   */
-  #getNestedValue(obj, path) {
-    if (!obj || !path) return undefined;
-    return path.split('.').reduce((o, k) => o?.[k], obj);
-  }
-
-  /**
-   * Auto-detect columns from first data row
-   * @private
-   * @param {Array} data - Data array
-   * @returns {Array} Column definitions
-   */
-  #autoDetectColumns(data) {
-    if (!data.length) return [];
-
-    const firstRow = data[0];
+    const firstRow = this.#data[0];
     return Object.keys(firstRow).map((key) => ({
       id: key,
-      header: this.#formatHeader(key),
       field: key,
+      header: this.#formatHeader(key),
       type: this.#detectType(firstRow[key]),
+      sortable: true,
+      filterable: true,
     }));
   }
 
-  /**
-   * Format key as header (camelCase → Title Case)
-   * @private
-   * @param {string} key - Object key
-   * @returns {string} Formatted header
-   */
   #formatHeader(key) {
     return key
       .replace(/([A-Z])/g, ' $1')
       .replace(/^./, (s) => s.toUpperCase())
+      .replace(/_/g, ' ')
       .trim();
   }
 
-  /**
-   * Detect data type from value
-   * @private
-   * @param {*} value - Sample value
-   * @returns {string} Type name
-   */
   #detectType(value) {
-    if (value === null || value === undefined) return 'text';
     if (typeof value === 'number') return 'number';
     if (typeof value === 'boolean') return 'boolean';
     if (value instanceof Date) return 'date';
-    if (typeof value === 'string') {
-      if (/^\d{4}-\d{2}-\d{2}/.test(value)) return 'date';
-    }
-    return 'text';
+    if (typeof value === 'string' && !isNaN(Date.parse(value))) return 'date';
+    return 'string';
   }
 
-  /**
-   * Create DOM structure with slots
-   * @private
-   */
-  #createDOM() {
-    // Add base class
-    this.#container.classList.add('bw-datatable');
+  // ==========================================================================
+  // DOM CREATION
+  // ==========================================================================
 
-    // Add theme class
-    if (this.#options.theme) {
-      this.#container.classList.add(`bw-datatable--${this.#options.theme}`);
+  #createDOM() {
+    // Clear container
+    this.#container.innerHTML = '';
+
+    // Main wrapper
+    this.#wrapper = document.createElement('div');
+    this.#wrapper.className = 'bw-datatable';
+
+    // Toolbar
+    if (this.#options.filterable) {
+      const toolbar = document.createElement('div');
+      toolbar.className = 'bw-datatable__toolbar';
+      toolbar.innerHTML = `
+        <input type="text" 
+          class="bw-datatable__search" 
+          placeholder="Search...">
+      `;
+      this.#wrapper.appendChild(toolbar);
     }
 
-    // Add modifier classes
-    if (this.#options.striped)
-      this.#container.classList.add('bw-datatable--striped');
-    if (this.#options.bordered)
-      this.#container.classList.add('bw-datatable--bordered');
-    if (this.#options.hoverable)
-      this.#container.classList.add('bw-datatable--hoverable');
-    if (this.#options.containerClass)
-      this.#container.classList.add(this.#options.containerClass);
-
-    // Create slot elements
-    this.#container.innerHTML = `
-      <div class="bw-datatable__toolbar" data-slot="toolbar"></div>
-      <div class="bw-datatable__wrapper">
-        <table class="bw-datatable__table ${this.#options.tableClass}">
-          <thead class="bw-datatable__header" data-slot="header"></thead>
-          <tbody class="bw-datatable__body" data-slot="body"></tbody>
-        </table>
-      </div>
-      <div class="bw-datatable__footer" data-slot="footer"></div>
-      <div class="bw-datatable__overlay" data-slot="overlay"></div>
+    // Scroll container (this is what scrolls)
+    this.#scrollContainer = document.createElement('div');
+    this.#scrollContainer.className = 'bw-datatable__scroll-container';
+    this.#scrollContainer.style.cssText = `
+      height: 400px;
+      overflow-y: auto;
+      overflow-x: auto;
+      position: relative;
     `;
 
-    // Store slot references
-    this.#slots.toolbar = this.#container.querySelector(
-      '[data-slot="toolbar"]'
-    );
-    this.#slots.header = this.#container.querySelector('[data-slot="header"]');
-    this.#slots.body = this.#container.querySelector('[data-slot="body"]');
-    this.#slots.footer = this.#container.querySelector('[data-slot="footer"]');
-    this.#slots.overlay = this.#container.querySelector(
-      '[data-slot="overlay"]'
-    );
+    // Height spacer - creates the scrollable height (absolute, doesn't affect layout)
+    this.#heightSpacer = document.createElement('div');
+    this.#heightSpacer.className = 'bw-datatable__spacer';
+    this.#heightSpacer.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 1px;
+      pointer-events: none;
+    `;
+
+    // Table
+    this.#table = document.createElement('table');
+    this.#table.className = 'bw-datatable__table';
+    this.#table.style.cssText = `
+      width: 100%;
+      border-collapse: collapse;
+      position: relative;
+    `;
+
+    // Thead - sticky header
+    this.#thead = document.createElement('thead');
+    this.#thead.className = 'bw-datatable__header';
+    this.#thead.style.cssText = `
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: var(--bw-dt-header-bg, #f9fafb);
+    `;
+
+    // Tbody - contains visible rows only
+    this.#tbody = document.createElement('tbody');
+    this.#tbody.className = 'bw-datatable__body';
+
+    // Assemble
+    this.#table.appendChild(this.#thead);
+    this.#table.appendChild(this.#tbody);
+    this.#scrollContainer.appendChild(this.#heightSpacer);
+    this.#scrollContainer.appendChild(this.#table);
+    this.#wrapper.appendChild(this.#scrollContainer);
+    this.#container.appendChild(this.#wrapper);
+
+    // Render header
+    this.#renderHeader();
   }
 
-  /**
-   * Bind internal event listeners
-   * @private
-   */
+  #renderHeader() {
+    let html = '<tr class="bw-datatable__header-row">';
+
+    // Checkbox column
+    if (this.#options.selectable) {
+      html += `
+        <th class="bw-datatable__th bw-datatable__th--checkbox" style="width:48px;">
+          <input type="checkbox" class="bw-datatable__select-all">
+        </th>
+      `;
+    }
+
+    // Data columns
+    for (const col of this.#columns) {
+      const sortable = this.#options.sortable && col.sortable !== false;
+      const sortClass =
+        this.#sort.column === col.id
+          ? `bw-datatable__th--sort-${this.#sort.direction}`
+          : '';
+
+      // Column width
+      const width = this.#columnWidths.get(col.id) || col.width || 'auto';
+      const widthStyle =
+        width !== 'auto'
+          ? `width:${typeof width === 'number' ? width + 'px' : width};`
+          : '';
+      const minWidth = col.minWidth || 50;
+      const minWidthStyle = `min-width:${
+        typeof minWidth === 'number' ? minWidth + 'px' : minWidth
+      };`;
+
+      html += `
+        <th class="bw-datatable__th ${sortClass} ${
+        sortable ? 'bw-datatable__th--sortable' : ''
+      }"
+            data-column="${col.id}"
+            style="${widthStyle}${minWidthStyle}">
+          <span class="bw-datatable__th-content">
+            <span class="bw-datatable__th-text">${this.#escapeHtml(
+              col.header || col.id
+            )}</span>
+            ${sortable ? '<span class="bw-datatable__th-sort"></span>' : ''}
+          </span>
+          ${
+            this.#options.resizable !== false
+              ? `<div class="bw-datatable__resize-handle" data-column="${col.id}"></div>`
+              : ''
+          }
+        </th>
+      `;
+    }
+
+    html += '</tr>';
+    this.#thead.innerHTML = html;
+  }
+
+  // ==========================================================================
+  // EVENT BINDING
+  // ==========================================================================
+
   #bindEvents() {
-    // State changes trigger re-render
-    this.#eventBus.on('state:change', ({ changes }) => {
-      if (
-        changes.includes('rows') ||
-        changes.includes('columns') ||
-        changes.includes('batch')
-      ) {
-        this.render();
-      }
+    // Scroll event for virtual scrolling
+    this.#scrollContainer.addEventListener('scroll', this.#onScroll.bind(this));
+
+    // Resize observer for viewport
+    const resizeObserver = new ResizeObserver(() => {
+      this.#calculateViewport();
+      this.#render();
     });
+    resizeObserver.observe(this.#scrollContainer);
 
-    // Click delegation on body
-    this.#slots.body.addEventListener('click', (e) => this.#handleBodyClick(e));
+    // Track if we just finished resizing (to prevent sort click)
+    let justResized = false;
 
-    // Click delegation on header
-    this.#slots.header.addEventListener('click', (e) =>
-      this.#handleHeaderClick(e)
-    );
+    // Column resize handlers
+    if (this.#options.resizable !== false) {
+      this.#thead.addEventListener('mousedown', (e) => {
+        const handle = e.target.closest('.bw-datatable__resize-handle');
+        if (handle) {
+          e.preventDefault();
+          e.stopPropagation();
+          const columnId = handle.dataset.column;
+          const th = handle.closest('th');
+          const startWidth = th.offsetWidth;
+          const colIndex = this.#columns.findIndex((c) => c.id === columnId);
 
-    // Click delegation on footer (pagination)
-    this.#slots.footer.addEventListener('click', (e) =>
-      this.#handleFooterClick(e)
-    );
+          this.#resizing = {
+            columnId,
+            startX: e.clientX,
+            startWidth,
+            colIndex,
+          };
+          document.body.style.cursor = 'col-resize';
+          document.body.style.userSelect = 'none';
 
-    // Double-click for editing
-    this.#slots.body.addEventListener('dblclick', (e) =>
-      this.#handleEditStart(e)
-    );
+          // Add class to table for visual feedback
+          this.#container.classList.add('bw-datatable--resizing');
+        }
+      });
 
-    // Single-click edit (if enabled)
-    if (this.#options.editOnClick) {
-      this.#slots.body.addEventListener('click', (e) => {
-        const cell = e.target.closest('[data-cell]');
-        if (cell && !e.target.closest('input, select')) {
-          this.#handleEditStart(e);
+      // Double-click to reset column width
+      this.#thead.addEventListener('dblclick', (e) => {
+        const handle = e.target.closest('.bw-datatable__resize-handle');
+        if (handle) {
+          e.preventDefault();
+          e.stopPropagation();
+          const columnId = handle.dataset.column;
+
+          // Remove stored width - column will auto-size
+          this.#columnWidths.delete(columnId);
+
+          // Clear inline styles
+          const th = this.#thead.querySelector(`[data-column="${columnId}"]`);
+          if (th) {
+            th.style.width = '';
+            th.style.minWidth = '';
+          }
+
+          // Re-render to apply
+          this.#renderedRange = { start: -1, end: -1 };
+          this.#render(true);
+
+          this.#emit('column:resize:reset', { columnId });
+        }
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!this.#resizing) return;
+
+        const { columnId, startX, startWidth, colIndex } = this.#resizing;
+        const diff = e.clientX - startX;
+        const col = this.#columns[colIndex];
+        const minWidth = col?.minWidth || 20; // Allow very small
+        const maxWidth = col?.maxWidth || 2000;
+
+        let newWidth = Math.max(
+          minWidth,
+          Math.min(maxWidth, startWidth + diff)
+        );
+
+        // Update header cell width directly
+        const th = this.#thead.querySelector(`[data-column="${columnId}"]`);
+        if (th) {
+          th.style.width = `${newWidth}px`;
+          th.style.minWidth = `${newWidth}px`;
+        }
+
+        // Update body cells - they have data-col-index
+        const bodyCells = this.#tbody.querySelectorAll(
+          `[data-col-index="${colIndex}"]`
+        );
+        bodyCells.forEach((cell) => {
+          cell.style.width = `${newWidth}px`;
+          cell.style.minWidth = `${newWidth}px`;
+        });
+
+        // Store for mouseup
+        this.#resizing.newWidth = newWidth;
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (this.#resizing) {
+          const { columnId, newWidth } = this.#resizing;
+
+          // Save final width
+          if (newWidth) {
+            this.#columnWidths.set(columnId, newWidth);
+          }
+
+          this.#resizing = null;
+          justResized = true;
+
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+          this.#container.classList.remove('bw-datatable--resizing');
+
+          // Emit event
+          this.#emit('column:resize', {
+            columnId,
+            width: this.#columnWidths.get(columnId),
+          });
+
+          // Reset flag after a short delay
+          setTimeout(() => {
+            justResized = false;
+          }, 100);
         }
       });
     }
 
-    // Column resize
-    if (this.#options.resizable) {
-      this.#slots.header.addEventListener('mousedown', (e) =>
-        this.#handleResizeStart(e)
-      );
-      this.#slots.header.addEventListener('dblclick', (e) =>
-        this.#handleResizeAutoFit(e)
-      );
+    // Header click (sort)
+    this.#thead.addEventListener('click', (e) => {
+      // Ignore clicks on resize handle or if we just finished resizing
+      if (e.target.closest('.bw-datatable__resize-handle')) return;
+      if (justResized) return;
+
+      const th = e.target.closest('[data-column]');
+      if (th && this.#options.sortable) {
+        const columnId = th.dataset.column;
+        const col = this.#columns.find((c) => c.id === columnId);
+        if (col && col.sortable !== false) {
+          this.#handleSort(columnId);
+        }
+      }
+
+      // Select all checkbox
+      if (e.target.classList.contains('bw-datatable__select-all')) {
+        this.#handleSelectAll(e.target.checked);
+      }
+    });
+
+    // Body click (row selection and cell focus)
+    this.#tbody.addEventListener('click', (e) => {
+      // Row checkbox
+      const checkbox = e.target.closest('.bw-datatable__row-checkbox');
+      if (checkbox) {
+        this.#handleRowSelect(checkbox.dataset.rowId, checkbox.checked);
+        return;
+      }
+
+      // Cell click for focus/editing
+      const cell = e.target.closest('.bw-datatable__td');
+      if (cell && !cell.classList.contains('bw-datatable__td--checkbox')) {
+        const row = cell.closest('.bw-datatable__row');
+        if (row && this.#options.editable) {
+          const viewIndex = parseInt(row.dataset.viewIndex);
+          const colIndex = Array.from(cell.parentNode.children).indexOf(cell);
+          const adjustedColIndex = this.#options.selectable
+            ? colIndex - 1
+            : colIndex;
+
+          // Check if clicking on already focused cell → start editing
+          if (
+            this.#focusedCell &&
+            this.#focusedCell.rowIndex === viewIndex &&
+            this.#focusedCell.colIndex === adjustedColIndex
+          ) {
+            this.#startEditing(viewIndex, adjustedColIndex);
+          } else {
+            // First click → just focus
+            this.#setFocusedCell(viewIndex, adjustedColIndex);
+          }
+          return;
+        }
+      }
+
+      // Row click for selection (only if not editable or clicking elsewhere)
+      const row = e.target.closest('.bw-datatable__row');
+      if (row && this.#options.selectable && !this.#options.editable) {
+        const rowId = row.dataset.rowId;
+        this.#handleRowSelect(rowId, !this.#selected.has(rowId));
+      }
+    });
+
+    // Double-click to edit (backup)
+    this.#tbody.addEventListener('dblclick', (e) => {
+      if (!this.#options.editable) return;
+
+      const cell = e.target.closest('.bw-datatable__td');
+      if (cell && !cell.classList.contains('bw-datatable__td--checkbox')) {
+        const row = cell.closest('.bw-datatable__row');
+        if (row) {
+          const colIndex = Array.from(cell.parentNode.children).indexOf(cell);
+          const adjustedColIndex = this.#options.selectable
+            ? colIndex - 1
+            : colIndex;
+          this.#startEditing(row.dataset.viewIndex, adjustedColIndex);
+        }
+      }
+    });
+
+    // Search input
+    const searchInput = this.#wrapper.querySelector('.bw-datatable__search');
+    if (searchInput) {
+      let debounceTimer;
+      searchInput.addEventListener('input', (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          this.filter(e.target.value);
+        }, 200);
+      });
     }
 
     // Keyboard navigation
-    if (this.#options.keyboardNavigation) {
-      this.#container.setAttribute('tabindex', '0');
-      this.#container.addEventListener('keydown', (e) =>
-        this.#handleKeyboardNav(e)
-      );
-      this.#slots.body.addEventListener('click', (e) =>
-        this.#handleCellFocus(e)
-      );
-    }
-  }
-
-  /**
-   * Handle cell focus on click
-   * @private
-   * @param {MouseEvent} e - Mouse event
-   */
-  #handleCellFocus(e) {
-    const cell = e.target.closest('[data-cell]');
-    const row = e.target.closest('[data-row-id]');
-
-    if (!cell || !row) return;
-
-    const rowId = row.dataset.rowId;
-    const columnId = cell.dataset.cell;
-
-    this.#setFocusedCell(rowId, columnId);
-  }
-
-  /**
-   * Set focused cell
-   * @private
-   * @param {string} rowId - Row ID
-   * @param {string} columnId - Column ID
-   */
-  #setFocusedCell(rowId, columnId) {
-    // Remove previous focus
-    const prevFocused = this.#container.querySelector(
-      '.bw-datatable__td--focused'
+    this.#scrollContainer.tabIndex = 0;
+    this.#scrollContainer.addEventListener(
+      'keydown',
+      this.#onKeyDown.bind(this)
     );
-    if (prevFocused) {
-      prevFocused.classList.remove('bw-datatable__td--focused');
-    }
-
-    // Set new focus
-    const cell = this.#container.querySelector(
-      `[data-row-id="${rowId}"] [data-cell="${columnId}"]`
-    );
-
-    if (cell) {
-      cell.classList.add('bw-datatable__td--focused');
-      this.#stateManager.setState(
-        {
-          focusedCell: { rowId, columnId },
-        },
-        { silent: true, track: false }
-      );
-
-      // Ensure container has focus for keyboard events
-      this.#container.focus();
-    }
   }
 
-  /**
-   * Handle keyboard navigation
-   * @private
-   * @param {KeyboardEvent} e - Keyboard event
-   */
-  #handleKeyboardNav(e) {
-    // Skip if editing
-    if (this.#stateManager.get('editingCell')) return;
+  #onScroll() {
+    this.#scrollTop = this.#scrollContainer.scrollTop;
+    this.#render();
+  }
 
-    // Skip if focus is on input/select
-    if (e.target.matches('input, select, textarea')) return;
+  #onKeyDown(e) {
+    const totalHeight = this.#view.length * this.#rowHeight;
+    const totalRows = this.#view.length;
+    const totalCols = this.#columns.length;
 
-    const focusedCell = this.#stateManager.get('focusedCell');
+    // If currently editing, handle edit-specific keys
+    if (this.#editingCell) {
+      return; // Let the input handle its own events
+    }
 
+    // Navigation with arrow keys when cell is focused
+    if (this.#focusedCell) {
+      const { rowIndex, colIndex } = this.#focusedCell;
+
+      switch (e.key) {
+        case 'Tab':
+          e.preventDefault();
+          if (e.shiftKey) {
+            // Move left or up to previous row
+            if (colIndex > 0) {
+              this.#setFocusedCell(rowIndex, colIndex - 1);
+            } else if (rowIndex > 0) {
+              this.#setFocusedCell(rowIndex - 1, totalCols - 1);
+            }
+          } else {
+            // Move right or down to next row
+            if (colIndex < totalCols - 1) {
+              this.#setFocusedCell(rowIndex, colIndex + 1);
+            } else if (rowIndex < totalRows - 1) {
+              this.#setFocusedCell(rowIndex + 1, 0);
+            }
+          }
+          return;
+
+        case 'Enter':
+          e.preventDefault();
+          if (this.#options.editable) {
+            this.#startEditing(rowIndex, colIndex);
+          }
+          return;
+
+        case 'ArrowUp':
+          e.preventDefault();
+          if (rowIndex > 0) {
+            this.#setFocusedCell(rowIndex - 1, colIndex);
+          }
+          return;
+
+        case 'ArrowDown':
+          e.preventDefault();
+          if (rowIndex < totalRows - 1) {
+            this.#setFocusedCell(rowIndex + 1, colIndex);
+          }
+          return;
+
+        case 'ArrowLeft':
+          e.preventDefault();
+          if (colIndex > 0) {
+            this.#setFocusedCell(rowIndex, colIndex - 1);
+          }
+          return;
+
+        case 'ArrowRight':
+          e.preventDefault();
+          if (colIndex < totalCols - 1) {
+            this.#setFocusedCell(rowIndex, colIndex + 1);
+          }
+          return;
+
+        case 'Escape':
+          e.preventDefault();
+          this.#clearFocusedCell();
+          return;
+      }
+    }
+
+    // Default scroll navigation
     switch (e.key) {
-      case 'ArrowUp':
-        e.preventDefault();
-        this.#moveFocus('up');
-        break;
-
-      case 'ArrowDown':
-        e.preventDefault();
-        this.#moveFocus('down');
-        break;
-
-      case 'ArrowLeft':
-        e.preventDefault();
-        this.#moveFocus('left');
-        break;
-
-      case 'ArrowRight':
-        e.preventDefault();
-        this.#moveFocus('right');
-        break;
-
       case 'Home':
         e.preventDefault();
-        if (e.ctrlKey) {
-          this.#moveFocus('first');
-        } else {
-          this.#moveFocus('rowStart');
+        this.#scrollContainer.scrollTop = 0;
+        if (this.#options.editable) {
+          this.#setFocusedCell(0, 0);
         }
         break;
 
       case 'End':
         e.preventDefault();
-        if (e.ctrlKey) {
-          this.#moveFocus('last');
-        } else {
-          this.#moveFocus('rowEnd');
+        this.#scrollContainer.scrollTop = totalHeight - this.#viewportHeight;
+        if (this.#options.editable) {
+          this.#setFocusedCell(totalRows - 1, 0);
         }
         break;
 
-      case 'Enter':
+      case 'PageDown':
         e.preventDefault();
-        if (focusedCell && this.#options.editable) {
-          this.startEdit(focusedCell.rowId, focusedCell.columnId);
-        }
+        this.#scrollContainer.scrollTop += this.#viewportHeight;
         break;
 
-      case ' ':
+      case 'PageUp':
         e.preventDefault();
-        if (focusedCell && this.#options.selectable) {
-          this.#handleSelection(focusedCell.rowId, e);
-        }
+        this.#scrollContainer.scrollTop -= this.#viewportHeight;
         break;
 
       case 'Tab':
-        // Let Tab work normally if no cell focused
-        if (focusedCell) {
+        // Start at first cell if no cell focused
+        if (this.#options.editable && !this.#focusedCell) {
           e.preventDefault();
-          this.#moveFocus(e.shiftKey ? 'left' : 'right');
+          this.#setFocusedCell(0, 0);
         }
         break;
     }
   }
 
-  /**
-   * Move focus in direction
-   * @private
-   * @param {string} direction - 'up' | 'down' | 'left' | 'right' | 'first' | 'last' | 'rowStart' | 'rowEnd'
-   */
-  #moveFocus(direction) {
-    const state = this.#stateManager.getState();
-    const focusedCell = state.focusedCell;
+  // ==========================================================================
+  // CELL FOCUS & EDITING
+  // ==========================================================================
 
-    // Get visible columns
-    const columns = state.columns.filter(
-      (c) => !state.hiddenColumns?.includes(c.id)
-    );
-    if (!columns.length) return;
-
-    // Get visible rows
-    const start = this.#options.paginated ? state.page * state.pageSize : 0;
-    const end = this.#options.paginated
-      ? start + state.pageSize
-      : state.rows.length;
-    const visibleRows = state.rows.slice(start, end);
-    if (!visibleRows.length) return;
-
-    let rowIndex, colIndex;
-
-    if (focusedCell) {
-      rowIndex = visibleRows.findIndex(
-        (r) => this.#getRowId(r) === focusedCell.rowId
-      );
-      colIndex = columns.findIndex((c) => c.id === focusedCell.columnId);
-
-      // If focused cell not visible (page changed), reset
-      if (rowIndex === -1) {
-        rowIndex = 0;
-        colIndex = 0;
-      }
-    } else {
-      // No focus yet, start at first cell
-      rowIndex = 0;
-      colIndex = 0;
-    }
-
-    // Calculate new position
-    switch (direction) {
-      case 'up':
-        rowIndex = Math.max(0, rowIndex - 1);
-        break;
-      case 'down':
-        rowIndex = Math.min(visibleRows.length - 1, rowIndex + 1);
-        break;
-      case 'left':
-        colIndex--;
-        if (colIndex < 0) {
-          colIndex = columns.length - 1;
-          rowIndex = Math.max(0, rowIndex - 1);
-        }
-        break;
-      case 'right':
-        colIndex++;
-        if (colIndex >= columns.length) {
-          colIndex = 0;
-          rowIndex = Math.min(visibleRows.length - 1, rowIndex + 1);
-        }
-        break;
-      case 'first':
-        rowIndex = 0;
-        colIndex = 0;
-        break;
-      case 'last':
-        rowIndex = visibleRows.length - 1;
-        colIndex = columns.length - 1;
-        break;
-      case 'rowStart':
-        colIndex = 0;
-        break;
-      case 'rowEnd':
-        colIndex = columns.length - 1;
-        break;
-    }
-
-    // Set new focus
-    const newRow = visibleRows[rowIndex];
-    const newColumn = columns[colIndex];
-
-    if (newRow && newColumn) {
-      this.#setFocusedCell(this.#getRowId(newRow), newColumn.id);
-    }
-  }
-
-  /**
-   * Clear cell focus
-   * @private
-   */
-  #clearFocus() {
-    const prevFocused = this.#container.querySelector(
-      '.bw-datatable__td--focused'
-    );
-    if (prevFocused) {
-      prevFocused.classList.remove('bw-datatable__td--focused');
-    }
-    this.#stateManager.setState(
-      { focusedCell: null },
-      { silent: true, track: false }
-    );
-  }
-
-  /**
-   * Handle column resize start
-   * @private
-   * @param {MouseEvent} e - Mouse event
-   */
-  #handleResizeStart(e) {
-    const handle = e.target.closest('[data-resize]');
-    if (!handle) return;
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    const columnId = handle.dataset.resize;
-    const th = handle.closest('th');
-    const startX = e.pageX;
-    const startWidth = th.offsetWidth;
-
-    // Flag to track if we actually resized
-    let didResize = false;
-
-    // Add resizing class
-    this.#container.classList.add('bw-datatable--resizing');
-
-    // Mouse move handler
-    const onMouseMove = (e) => {
-      didResize = true;
-      const diff = e.pageX - startX;
-      let newWidth = startWidth + diff;
-
-      // Apply constraints
-      newWidth = Math.max(newWidth, this.#options.minColumnWidth);
-      if (this.#options.maxColumnWidth) {
-        newWidth = Math.min(newWidth, this.#options.maxColumnWidth);
-      }
-
-      // Update column width live
-      th.style.width = `${newWidth}px`;
-      th.style.minWidth = `${newWidth}px`;
-      th.style.maxWidth = `${newWidth}px`;
-
-      // Update body cells too
-      const bodyCells = this.#slots.body.querySelectorAll(
-        `[data-cell="${columnId}"]`
-      );
-      bodyCells.forEach((cell) => {
-        cell.style.width = `${newWidth}px`;
-        cell.style.minWidth = `${newWidth}px`;
-        cell.style.maxWidth = `${newWidth}px`;
-      });
+  #setFocusedCell(rowIndex, colIndex) {
+    this.#focusedCell = {
+      rowIndex: parseInt(rowIndex),
+      colIndex: parseInt(colIndex),
     };
 
-    // Mouse up handler
-    const onMouseUp = (e) => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+    // Ensure row is visible
+    this.#scrollToRowIfNeeded(this.#focusedCell.rowIndex);
 
-      // Remove resizing class
-      this.#container.classList.remove('bw-datatable--resizing');
+    // Re-render to show focus
+    this.#renderedRange = { start: -1, end: -1 }; // Force re-render
+    this.#render();
 
-      // Only save if we actually resized
-      if (didResize) {
-        const finalWidth = th.offsetWidth;
-        const columnWidths = { ...this.#stateManager.get('columnWidths') };
-        columnWidths[columnId] = finalWidth;
-
-        this.#stateManager.setState({ columnWidths }, { silent: true });
-
-        // Emit event
-        this.#eventBus.emit('column:resize', { columnId, width: finalWidth });
-      }
-
-      // Prevent click event from firing (which triggers sort)
-      const preventClick = (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-      };
-      th.addEventListener('click', preventClick, { capture: true, once: true });
-      setTimeout(() => {
-        th.removeEventListener('click', preventClick, { capture: true });
-      }, 100);
-    };
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+    // Keep focus on scroll container for keyboard events
+    this.#scrollContainer.focus();
   }
 
-  /**
-   * Handle double-click to auto-fit column width
-   * @private
-   * @param {MouseEvent} e - Mouse event
-   */
-  #handleResizeAutoFit(e) {
-    const handle = e.target.closest('[data-resize]');
-    if (!handle) return;
+  #clearFocusedCell() {
+    this.#focusedCell = null;
+    this.#renderedRange = { start: -1, end: -1 };
+    this.#render();
+    this.#scrollContainer.focus();
+  }
 
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
+  #scrollToRowIfNeeded(rowIndex) {
+    const rowTop = rowIndex * this.#rowHeight;
+    const rowBottom = rowTop + this.#rowHeight;
+    const viewTop = this.#scrollTop;
+    const viewBottom = this.#scrollTop + this.#viewportHeight;
 
-    const columnId = handle.dataset.resize;
-    const column = this.#stateManager
-      .get('columns')
-      .find((c) => c.id === columnId);
-
-    if (!column) return;
-
-    // Calculate max content width
-    let maxWidth = this.#options.minColumnWidth;
-
-    // Check header width
-    const th = handle.closest('th');
-    const headerContent = th.querySelector('.bw-datatable__th-content');
-    if (headerContent) {
-      maxWidth = Math.max(maxWidth, headerContent.scrollWidth + 40);
+    if (rowTop < viewTop) {
+      this.#scrollContainer.scrollTop = rowTop;
+    } else if (rowBottom > viewBottom) {
+      this.#scrollContainer.scrollTop = rowBottom - this.#viewportHeight;
     }
+  }
 
-    // Check all body cells
-    const bodyCells = this.#slots.body.querySelectorAll(
-      `[data-cell="${columnId}"]`
+  #getCellElement(rowIndex, colIndex) {
+    const row = this.#tbody.querySelector(`[data-view-index="${rowIndex}"]`);
+    if (!row) return null;
+
+    const cells = row.querySelectorAll(
+      '.bw-datatable__td:not(.bw-datatable__td--checkbox)'
     );
-    bodyCells.forEach((cell) => {
-      maxWidth = Math.max(maxWidth, cell.scrollWidth + 32);
-    });
-
-    // Apply max width constraint
-    if (this.#options.maxColumnWidth) {
-      maxWidth = Math.min(maxWidth, this.#options.maxColumnWidth);
-    }
-
-    // Update state
-    const columnWidths = { ...this.#stateManager.get('columnWidths') };
-    columnWidths[columnId] = maxWidth;
-
-    this.#stateManager.setState({ columnWidths }, { silent: true });
-    this.render();
-
-    // Emit event
-    this.#eventBus.emit('column:resize', { columnId, width: maxWidth });
+    return cells[colIndex] || null;
   }
 
-  /**
-   * Handle body clicks (row/cell selection, edit)
-   * @private
-   * @param {Event} e - Click event
-   */
-  #handleBodyClick(e) {
-    const cell = e.target.closest('[data-cell]');
-    const row = e.target.closest('[data-row-id]');
-    const checkbox = e.target.closest('[data-select-row]');
-
-    if (!row) return;
-
-    const rowId = row.dataset.rowId;
-    const columnId = cell?.dataset.cell;
-
-    // Emit cell click
-    if (cell) {
-      this.#eventBus.emit('cell:click', { rowId, columnId, event: e });
-    }
-
-    // Emit row click
-    this.#eventBus.emit('row:click', { rowId, event: e });
-
-    // Handle selection (only if clicked on checkbox or row itself)
-    if (
-      this.#options.selectable &&
-      this.#stateManager.get('selectionMode') !== 'none'
-    ) {
-      if (checkbox || !cell) {
-        this.#handleSelection(rowId, e);
-      }
-    }
-  }
-
-  /**
-   * Handle header clicks (sorting, select all)
-   * @private
-   * @param {Event} e - Click event
-   */
-  #handleHeaderClick(e) {
-    // Select all checkbox
-    const selectAll = e.target.closest('[data-select-all]');
-    if (selectAll) {
-      this.#handleSelectAll(selectAll.checked);
-      return;
-    }
-
-    // Sort
-    const th = e.target.closest('[data-column]');
-    if (!th) return;
-
-    const columnId = th.dataset.column;
-    const column = this.#stateManager
-      .get('columns')
-      .find((c) => c.id === columnId);
-
-    if (!this.#options.sortable || column?.sortable === false) return;
-
-    this.sort(columnId);
-  }
-
-  /**
-   * Handle footer clicks (pagination)
-   * @private
-   * @param {Event} e - Click event
-   */
-  #handleFooterClick(e) {
-    const btn = e.target.closest('[data-page]');
-    if (!btn || btn.disabled) return;
-
-    const action = btn.dataset.page;
-    const state = this.#stateManager.getState();
-    const totalPages = Math.ceil(state.totalRows / state.pageSize);
-
-    switch (action) {
-      case 'first':
-        this.goToPage(0);
-        break;
-      case 'prev':
-        this.goToPage(state.page - 1);
-        break;
-      case 'next':
-        this.goToPage(state.page + 1);
-        break;
-      case 'last':
-        this.goToPage(totalPages - 1);
-        break;
-    }
-  }
-
-  /**
-   * Handle row selection
-   * @private
-   * @param {string} rowId - Row ID
-   * @param {Event} e - Click event
-   */
-  #handleSelection(rowId, e) {
-    const selected = new Set(this.#stateManager.get('selected'));
-    const mode = this.#stateManager.get('selectionMode');
-
-    if (mode === 'single') {
-      // Single selection - toggle same row or switch to new
-      if (selected.has(rowId)) {
-        selected.clear();
-      } else {
-        selected.clear();
-        selected.add(rowId);
-      }
-    } else if (mode === 'multi') {
-      // Multi selection - always toggle
-      if (selected.has(rowId)) {
-        selected.delete(rowId);
-      } else {
-        selected.add(rowId);
-      }
-    }
-
-    this.#stateManager.setState({ selected }, { silent: true });
-
-    // Callback
-    if (this.#options.onSelect) {
-      this.#options.onSelect([...selected], this);
-    }
-
-    // Re-render to update selection UI
-    this.render();
-  }
-
-  /**
-   * Handle select all checkbox
-   * @private
-   * @param {boolean} checked - Checkbox state
-   */
-  #handleSelectAll(checked) {
-    const state = this.#stateManager.getState();
-    let selected;
-
-    if (checked) {
-      // Select all visible rows
-      const start = this.#options.paginated ? state.page * state.pageSize : 0;
-      const end = this.#options.paginated
-        ? start + state.pageSize
-        : state.rows.length;
-      const visibleRows = state.rows.slice(start, end);
-      selected = new Set(visibleRows.map((row) => this.#getRowId(row)));
-    } else {
-      // Deselect all
-      selected = new Set();
-    }
-
-    this.#stateManager.setState({ selected }, { silent: true });
-
-    if (this.#options.onSelect) {
-      this.#options.onSelect([...selected], this);
-    }
-
-    this.render();
-  }
-
-  /**
-   * Handle edit start (double-click or single-click)
-   * @private
-   * @param {Event} e - Click event
-   */
-  #handleEditStart(e) {
+  #startEditing(rowIndex, colIndex) {
     if (!this.#options.editable) return;
 
-    const cell = e.target.closest('[data-cell]');
-    const row = e.target.closest('[data-row-id]');
+    rowIndex = parseInt(rowIndex);
+    colIndex = parseInt(colIndex);
 
-    if (!cell || !row) return;
+    const dataIndex = this.#view[rowIndex];
+    if (dataIndex === undefined) return;
 
-    const rowId = row.dataset.rowId;
-    const columnId = cell.dataset.cell;
-    const column = this.#stateManager
-      .get('columns')
-      .find((c) => c.id === columnId);
+    const row = this.#data[dataIndex];
+    const column = this.#columns[colIndex];
 
-    // Check if column is editable
-    if (!this.#isColumnEditable(column)) return;
+    if (!row || !column) return;
+    if (column.editable === false) return;
 
-    // Already editing this cell
-    const editingCell = this.#stateManager.get('editingCell');
-    if (editingCell?.rowId === rowId && editingCell?.columnId === columnId)
-      return;
+    const rowId = this.#getRowId(row, dataIndex);
+    const currentValue = row[column.field || column.id];
 
-    // Save current edit if any
-    if (editingCell) {
-      this.#saveEdit();
-    }
+    this.#editingCell = {
+      rowId,
+      rowIndex,
+      colIndex,
+      dataIndex,
+      columnId: column.id,
+      field: column.field || column.id,
+      originalValue: currentValue,
+    };
 
-    // Get current value
-    const rowData = this.#stateManager
-      .get('rows')
-      .find((r) => this.#getRowId(r) === rowId);
-    const value = this.#getCellValue(rowData, column);
+    // Re-render to show input
+    this.#renderedRange = { start: -1, end: -1 };
+    this.#render();
 
-    // Set editing state
-    this.#stateManager.setState(
-      {
-        editingCell: { rowId, columnId, originalValue: value },
-      },
-      { silent: true }
-    );
-
-    // Render edit input
-    this.#renderEditCell(cell, column, value);
-
-    // Emit event
-    this.#eventBus.emit('edit:start', { rowId, columnId, value });
-
-    // Callback
-    if (this.#options.onEditStart) {
-      this.#options.onEditStart(rowId, columnId, value, this);
-    }
-  }
-
-  /**
-   * Check if column is editable
-   * @private
-   * @param {Object} column - Column definition
-   * @returns {boolean}
-   */
-  #isColumnEditable(column) {
-    // Column explicitly set to not editable
-    if (column.editable === false) return false;
-
-    // Column explicitly set to editable
-    if (column.editable === true) return true;
-
-    // Check editableColumns option
-    if (this.#options.editableColumns) {
-      return this.#options.editableColumns.includes(column.id);
-    }
-
-    // Default: editable if global editable is true
-    return this.#options.editable;
-  }
-
-  /**
-   * Render edit input in cell
-   * @private
-   * @param {HTMLElement} cell - Cell element
-   * @param {Object} column - Column definition
-   * @param {*} value - Current value
-   */
-  #renderEditCell(cell, column, value) {
-    const type = column.editType || column.type || 'text';
-    let input;
-
-    switch (type) {
-      case 'number':
-        input = document.createElement('input');
-        input.type = 'number';
-        input.value = value ?? '';
-        input.className = 'bw-datatable__edit-input';
-        break;
-
-      case 'boolean':
-        input = document.createElement('input');
-        input.type = 'checkbox';
-        input.checked = Boolean(value);
-        input.className = 'bw-datatable__edit-checkbox';
-        break;
-
-      case 'select':
-        input = document.createElement('select');
-        input.className = 'bw-datatable__edit-select';
-        (column.options || []).forEach((opt) => {
-          const option = document.createElement('option');
-          option.value = typeof opt === 'object' ? opt.value : opt;
-          option.textContent = typeof opt === 'object' ? opt.label : opt;
-          option.selected = option.value === String(value);
-          input.appendChild(option);
-        });
-        break;
-
-      case 'date':
-        input = document.createElement('input');
-        input.type = 'date';
-        input.value = value ? new Date(value).toISOString().split('T')[0] : '';
-        input.className = 'bw-datatable__edit-input';
-        break;
-
-      default: // text
-        input = document.createElement('input');
-        input.type = 'text';
-        input.value = value ?? '';
-        input.className = 'bw-datatable__edit-input';
-    }
-
-    // Store reference
-    input.dataset.editInput = 'true';
-
-    // Keyboard handler on INPUT
-    input.addEventListener('keydown', (e) => {
-      switch (e.key) {
-        case 'Enter':
-          e.preventDefault();
-          this.#saveEdit();
-          break;
-
-        case 'Escape':
-          e.preventDefault();
-          this.#cancelEdit();
-          break;
-
-        case 'Tab':
-          e.preventDefault();
-          e.stopPropagation();
-
-          // Get next cell info BEFORE save
-          const nextInfo = this.#getNextEditableCell(e.shiftKey);
-
-          // Save current edit (this calls render() and rebuilds DOM)
-          this.#saveEdit();
-
-          // Move to next cell - need to find cell again after render
-          if (nextInfo) {
-            setTimeout(() => {
-              // Find cell again after DOM rebuild
-              const newCell = this.#container.querySelector(
-                `[data-row-id="${nextInfo.rowId}"] [data-cell="${nextInfo.columnId}"]`
-              );
-
-              if (newCell) {
-                this.#startEditCell(
-                  nextInfo.rowId,
-                  nextInfo.columnId,
-                  nextInfo.value,
-                  newCell
-                );
-              }
-            }, 50);
-          }
-          break;
+    // Focus the input
+    setTimeout(() => {
+      const input = this.#tbody.querySelector('.bw-datatable__edit-input');
+      if (input) {
+        input.focus();
+        input.select();
       }
+    }, 0);
+
+    this.#emit('cell:edit:start', {
+      rowId,
+      rowIndex,
+      colIndex,
+      columnId: column.id,
+      value: currentValue,
     });
-
-    // Blur handler
-    input.addEventListener('blur', (e) => {
-      // Small delay to allow Tab keydown to fire first
-      setTimeout(() => {
-        // Only save if we're still editing this cell (not moved to next)
-        const editingCell = this.#stateManager.get('editingCell');
-        if (
-          editingCell &&
-          !this.#container.querySelector('[data-edit-input]:focus')
-        ) {
-          this.#saveEdit();
-        }
-      }, 100);
-    });
-
-    // Replace cell content
-    cell.innerHTML = '';
-    cell.appendChild(input);
-    cell.classList.add('bw-datatable__td--editing');
-
-    // Focus input
-    input.focus();
-    if (input.select) input.select();
   }
 
-  /**
-   * Save current edit
-   * @private
-   */
-  #saveEdit() {
-    const editingCell = this.#stateManager.get('editingCell');
-    if (!editingCell) return;
+  #saveEdit(newValue) {
+    if (!this.#editingCell) return;
 
-    const { rowId, columnId, originalValue } = editingCell;
-    const input = this.#container.querySelector('[data-edit-input]');
-
-    if (!input) {
-      this.#stateManager.setState({ editingCell: null }, { silent: true });
-      return;
-    }
-
-    // Get new value
-    let newValue;
-    if (input.type === 'checkbox') {
-      newValue = input.checked;
-    } else if (input.type === 'number') {
-      newValue = input.value === '' ? null : Number(input.value);
-    } else {
-      newValue = input.value;
-    }
-
-    // Get column for validation
-    const column = this.#stateManager
-      .get('columns')
-      .find((c) => c.id === columnId);
-
-    // Validate if validator exists
-    if (column.validator) {
-      const isValid = column.validator(newValue, originalValue, rowId);
-      if (!isValid) {
-        input.classList.add('bw-datatable__edit-input--invalid');
-        return;
-      }
-    }
-
-    // Emit before event (can cancel)
-    const result = this.#eventBus.emit('edit:before', {
+    const {
+      dataIndex,
+      field,
+      originalValue,
       rowId,
       columnId,
-      value: newValue,
-      oldValue: originalValue,
-    });
-    if (result === false) {
-      this.#cancelEdit();
-      return;
-    }
+      rowIndex,
+      colIndex,
+    } = this.#editingCell;
+    const row = this.#data[dataIndex];
+
+    // Store old value for history
+    const oldValue = originalValue;
 
     // Update data
-    if (newValue !== originalValue) {
-      this.#updateCellValue(rowId, columnId, newValue);
-    }
+    row[field] = newValue;
 
     // Clear editing state
-    this.#stateManager.setState({ editingCell: null }, { silent: true });
+    this.#editingCell = null;
+
+    // Keep focus on cell
+    this.#focusedCell = { rowIndex, colIndex };
 
     // Re-render
-    this.render();
+    this.#renderedRange = { start: -1, end: -1 };
+    this.#render();
 
-    // Emit event
-    this.#eventBus.emit('edit:end', {
+    // Refocus scroll container for keyboard nav
+    this.#scrollContainer.focus();
+
+    // Emit event for history plugin
+    this.#emit('cell:edit', {
+      rowId,
+      rowIndex,
+      colIndex,
+      columnId,
+      field,
+      oldValue,
+      newValue,
+      row: { ...row },
+    });
+
+    this.#emit('cell:edit:end', {
       rowId,
       columnId,
-      value: newValue,
-      oldValue: originalValue,
+      oldValue,
+      newValue,
     });
-
-    // Callback
-    if (this.#options.onEditEnd) {
-      this.#options.onEditEnd(rowId, columnId, newValue, originalValue, this);
-    }
   }
 
-  /**
-   * Cancel current edit
-   * @private
-   */
   #cancelEdit() {
-    const editingCell = this.#stateManager.get('editingCell');
-    if (!editingCell) return;
+    if (!this.#editingCell) return;
 
-    const { rowId, columnId } = editingCell;
+    const { rowIndex, colIndex } = this.#editingCell;
 
-    // Clear editing state
-    this.#stateManager.setState({ editingCell: null }, { silent: true });
+    this.#editingCell = null;
+    this.#focusedCell = { rowIndex, colIndex };
 
-    // Re-render
-    this.render();
+    this.#renderedRange = { start: -1, end: -1 };
+    this.#render();
 
-    // Emit event
-    this.#eventBus.emit('edit:cancel', { rowId, columnId });
+    // Refocus scroll container for keyboard nav
+    this.#scrollContainer.focus();
 
-    // Callback
-    if (this.#options.onEditCancel) {
-      this.#options.onEditCancel(rowId, columnId, this);
-    }
+    this.#emit('cell:edit:cancel');
   }
 
-  /**
-   * Get next/previous editable cell info
-   * @private
-   * @param {boolean} reverse - Go backward (Shift+Tab)
-   * @returns {Object|null} Next cell info or null
-   */
-  #getNextEditableCell(reverse = false) {
-    const state = this.#stateManager.getState();
-    const editingCell = state.editingCell;
-
-    if (!editingCell) return null;
-
-    const { rowId, columnId } = editingCell;
-
-    // Get visible editable columns
-    const columns = state.columns.filter(
-      (c) => !state.hiddenColumns?.includes(c.id) && this.#isColumnEditable(c)
-    );
-
-    if (!columns.length) return null;
-
-    // Find current column index
-    const colIndex = columns.findIndex((c) => c.id === columnId);
-
-    // Get visible rows
-    const start = this.#options.paginated ? state.page * state.pageSize : 0;
-    const end = this.#options.paginated
-      ? start + state.pageSize
-      : state.rows.length;
-    const visibleRows = state.rows.slice(start, end);
-
-    // Find current row index
-    const rowIndex = visibleRows.findIndex((r) => this.#getRowId(r) === rowId);
-
-    let nextColIndex = colIndex;
-    let nextRowIndex = rowIndex;
-
-    if (reverse) {
-      nextColIndex--;
-      if (nextColIndex < 0) {
-        nextColIndex = columns.length - 1;
-        nextRowIndex--;
-      }
-    } else {
-      nextColIndex++;
-      if (nextColIndex >= columns.length) {
-        nextColIndex = 0;
-        nextRowIndex++;
-      }
-    }
-
-    // Check bounds
-    if (nextRowIndex < 0 || nextRowIndex >= visibleRows.length) return null;
-
-    // Get next cell info
-    const nextRow = visibleRows[nextRowIndex];
-    const nextColumn = columns[nextColIndex];
-    const nextRowId = this.#getRowId(nextRow);
-
-    // Find cell element
-    const cell = this.#container.querySelector(
-      `[data-row-id="${nextRowId}"] [data-cell="${nextColumn.id}"]`
-    );
-
-    if (!cell) return null;
-
-    return {
-      rowId: nextRowId,
-      columnId: nextColumn.id,
-      column: nextColumn,
-      value: this.#getCellValue(nextRow, nextColumn),
-      cell: cell,
-    };
-  }
-  /**
-   * Start editing a specific cell (internal)
-   * @private
-   * @param {string} rowId - Row ID
-   * @param {string} columnId - Column ID
-   * @param {*} value - Cell value
-   * @param {HTMLElement} cell - Cell element
-   */
-  #startEditCell(rowId, columnId, value, cell) {
-    const column = this.#stateManager
-      .get('columns')
-      .find((c) => c.id === columnId);
-
-    if (!cell || !column) return;
-
-    // Set editing state
-    this.#stateManager.setState(
-      {
-        editingCell: { rowId, columnId, originalValue: value },
-      },
-      { silent: true }
-    );
-
-    // Render edit input
-    this.#renderEditCell(cell, column, value);
-
-    // Emit event
-    this.#eventBus.emit('edit:start', { rowId, columnId, value });
-
-    // Callback
-    if (this.#options.onEditStart) {
-      this.#options.onEditStart(rowId, columnId, value, this);
-    }
-  }
-
-  /**
-   * Update cell value in data
-   * @private
-   * @param {string} rowId - Row ID
-   * @param {string} columnId - Column ID
-   * @param {*} value - New value
-   */
-  #updateCellValue(rowId, columnId, value) {
-    const state = this.#stateManager.getState();
-    const column = state.columns.find((c) => c.id === columnId);
-
-    // Find row in both data and rows arrays
-    const dataRow = state.data.find((r) => this.#getRowId(r) === rowId);
-    const row = state.rows.find((r) => this.#getRowId(r) === rowId);
-
-    if (!dataRow || !column) return;
-
-    // Update value using field path or column id
-    const field = column.field || column.id;
-
-    if (field.includes('.')) {
-      // Nested field
-      this.#setNestedValue(dataRow, field, value);
-      if (row !== dataRow) {
-        this.#setNestedValue(row, field, value);
-      }
-    } else {
-      // Direct field
-      dataRow[field] = value;
-      if (row !== dataRow) {
-        row[field] = value;
-      }
-    }
-  }
-
-  /**
-   * Set nested value using dot notation
-   * @private
-   * @param {Object} obj - Target object
-   * @param {string} path - Dot notation path
-   * @param {*} value - Value to set
-   */
-  #setNestedValue(obj, path, value) {
-    const keys = path.split('.');
-    const lastKey = keys.pop();
-    const target = keys.reduce((o, k) => (o[k] = o[k] || {}), obj);
-    target[lastKey] = value;
-  }
-
-  /**
-   * Create API object for plugins
-   * @private
-   * @returns {Object} Plugin API
-   */
-  #createPluginAPI() {
-    return {
-      // State access
-      stateManager: this.#stateManager,
-      getState: () => this.#stateManager.getState(),
-      setState: (updates, options) =>
-        this.#stateManager.setState(updates, options),
-      get: (key) => this.#stateManager.get(key),
-
-      // Event system
-      eventBus: this.#eventBus,
-      on: (event, cb) => this.#eventBus.on(event, cb),
-      off: (event, cb) => this.#eventBus.off(event, cb),
-      emit: (event, data) => this.#eventBus.emit(event, data),
-      intercept: (event, cb) => this.#eventBus.intercept(event, cb),
-
-      // DOM slots
-      slots: this.#slots,
-
-      // Table reference
-      table: this,
-
-      // Options
-      getOptions: () => ({ ...this.#options }),
-
-      // Utilities
-      getNestedValue: (obj, path) => this.#getNestedValue(obj, path),
-      getRowId: (row) => this.#getRowId(row),
-      getCellValue: (row, column) => this.#getCellValue(row, column),
-    };
-  }
-
-  /**
-   * Get row ID from row data
-   * @private
-   * @param {Object} row - Row data
-   * @returns {string} Row ID
-   */
-  #getRowId(row) {
-    const { rowId } = this.#options;
-
-    // Function
-    if (typeof rowId === 'function') {
-      return String(rowId(row));
-    }
-
-    // Field name
-    if (row[rowId] !== undefined) {
-      return String(row[rowId]);
-    }
-
-    // Auto-generate
-    if (row.__bw_id !== undefined) {
-      return row.__bw_id;
-    }
-
-    // Fallback: generate and store
-    row.__bw_id = `bw_${Math.random().toString(36).slice(2, 9)}`;
-    return row.__bw_id;
-  }
-
-  /**
-   * Get cell value from row
-   * @private
-   * @param {Object} row - Row data
-   * @param {Object} column - Column definition
-   * @returns {*} Cell value
-   */
-  #getCellValue(row, column) {
-    // Custom getter
-    if (column.valueGetter) {
-      return column.valueGetter(row);
-    }
-
-    // Field path (supports dot notation)
-    if (column.field) {
-      return this.#getNestedValue(row, column.field);
-    }
-
-    // Direct key
-    return row[column.id];
-  }
-
-  // ===========================================================================
-  // PUBLIC API
-  // ===========================================================================
-
-  /**
-   * Hide a column
-   *
-   * @param {string} columnId - Column ID
-   */
-  hideColumn(columnId) {
-    const hiddenColumns = [...(this.#stateManager.get('hiddenColumns') || [])];
-    if (!hiddenColumns.includes(columnId)) {
-      hiddenColumns.push(columnId);
-      this.#stateManager.setState({ hiddenColumns }, { silent: true });
-      this.render();
-      this.#eventBus.emit('column:hide', { columnId });
-    }
-  }
-
-  /**
-   * Show a column
-   *
-   * @param {string} columnId - Column ID
-   */
-  showColumn(columnId) {
-    const hiddenColumns = [...(this.#stateManager.get('hiddenColumns') || [])];
-    const index = hiddenColumns.indexOf(columnId);
-    if (index > -1) {
-      hiddenColumns.splice(index, 1);
-      this.#stateManager.setState({ hiddenColumns }, { silent: true });
-      this.render();
-      this.#eventBus.emit('column:show', { columnId });
-    }
-  }
-
-  /**
-   * Toggle column visibility
-   *
-   * @param {string} columnId - Column ID
-   */
-  toggleColumn(columnId) {
-    const hiddenColumns = this.#stateManager.get('hiddenColumns') || [];
-    if (hiddenColumns.includes(columnId)) {
-      this.showColumn(columnId);
-    } else {
-      this.hideColumn(columnId);
-    }
-  }
-
-  /**
-   * Get hidden columns
-   *
-   * @returns {string[]} Array of hidden column IDs
-   */
-  getHiddenColumns() {
-    return [...(this.#stateManager.get('hiddenColumns') || [])];
-  }
-
-  /**
-   * Get visible columns
-   *
-   * @returns {Object[]} Array of visible column definitions
-   */
-  getVisibleColumns() {
-    const hiddenColumns = this.#stateManager.get('hiddenColumns') || [];
-    return this.#stateManager
-      .get('columns')
-      .filter((c) => !hiddenColumns.includes(c.id));
-  }
-
-  /**
-   * Set loading state
-   *
-   * @param {boolean} loading - Loading state
-   * @param {string} text - Optional loading text
-   */
-  setLoading(loading, text = null) {
-    if (text) {
-      this.#options.loadingText = text;
-    }
-    this.#stateManager.setState({ isLoading: loading }, { silent: true });
-    this.#renderOverlay(this.#stateManager.getState());
-  }
-
-  /**
-   * Set error state
-   *
-   * @param {string|null} error - Error message or null to clear
-   */
-  setError(error) {
-    this.#stateManager.setState({ error }, { silent: true });
-    this.#renderOverlay(this.#stateManager.getState());
-  }
-
-  /**
-   * Set empty text
-   *
-   * @param {string} text - Empty state message
-   */
-  setEmptyText(text) {
-    this.#options.emptyText = text;
-    this.render();
-  }
-
-  /**
-   * Focus a cell programmatically
-   *
-   * @param {string} rowId - Row ID
-   * @param {string} columnId - Column ID
-   */
-  focusCell(rowId, columnId) {
-    this.#setFocusedCell(rowId, columnId);
-  }
-
-  /**
-   * Get currently focused cell
-   *
-   * @returns {Object|null} { rowId, columnId } or null
-   */
-  getFocusedCell() {
-    return this.#stateManager.get('focusedCell');
-  }
-
-  /**
-   * Set column width programmatically
-   *
-   * @param {string} columnId - Column ID
-   * @param {number} width - Width in pixels
-   */
-  setColumnWidth(columnId, width) {
-    width = Math.max(width, this.#options.minColumnWidth);
-    if (this.#options.maxColumnWidth) {
-      width = Math.min(width, this.#options.maxColumnWidth);
-    }
-
-    const columnWidths = { ...this.#stateManager.get('columnWidths') };
-    columnWidths[columnId] = width;
-
-    this.#stateManager.setState({ columnWidths }, { silent: true });
-    this.render();
-  }
-
-  /**
-   * Get column widths
-   *
-   * @returns {Object} Column widths { columnId: width }
-   */
-  getColumnWidths() {
-    return { ...this.#stateManager.get('columnWidths') };
-  }
-
-  /**
-   * Reset column widths to default
-   */
-  resetColumnWidths() {
-    this.#stateManager.setState({ columnWidths: {} }, { silent: true });
-    this.render();
-  }
-
-  /**
-   * Start editing a cell programmatically
-   *
-   * @param {string} rowId - Row ID
-   * @param {string} columnId - Column ID
-   */
-  startEdit(rowId, columnId) {
-    if (!this.#options.editable) return;
-
-    const column = this.#stateManager
-      .get('columns')
-      .find((c) => c.id === columnId);
-    if (!column || !this.#isColumnEditable(column)) return;
-
-    const cell = this.#container.querySelector(
-      `[data-row-id="${rowId}"] [data-cell="${columnId}"]`
-    );
-
-    if (cell) {
-      const row = this.#stateManager
-        .get('rows')
-        .find((r) => this.#getRowId(r) === rowId);
-      const value = this.#getCellValue(row, column);
-
-      this.#stateManager.setState(
-        {
-          editingCell: { rowId, columnId, originalValue: value },
-        },
-        { silent: true }
-      );
-
-      this.#renderEditCell(cell, column, value);
-    }
-  }
-
-  /**
-   * Stop editing and save
-   */
-  stopEdit() {
-    this.#saveEdit();
-  }
-
-  /**
-   * Cancel editing without saving
-   */
-  cancelEdit() {
-    this.#cancelEdit();
-  }
-
-  /**
-   * Check if currently editing
-   *
-   * @returns {Object|null} Editing cell info or null
-   */
-  isEditing() {
-    return this.#stateManager.get('editingCell');
-  }
-
-  /**
-   * Update a cell value programmatically
-   *
-   * @param {string} rowId - Row ID
-   * @param {string} columnId - Column ID
-   * @param {*} value - New value
-   */
-  setCellValue(rowId, columnId, value) {
-    this.#updateCellValue(rowId, columnId, value);
-    this.render();
-  }
-
-  /**
-   * Register a plugin
-   *
-   * @param {Object} plugin - Plugin definition
-   * @param {Object} options - Plugin options
-   * @returns {BWDataTable} this (for chaining)
-   *
-   * @example
-   *   table.use(UndoPlugin, { maxHistory: 50 })
-   *        .use(VirtualPlugin);
-   */
-  use(plugin, options = {}) {
-    this.#pluginSystem.register(plugin, options);
-    return this;
-  }
-
-  /**
-   * Get a plugin instance
-   *
-   * @param {string} name - Plugin name
-   * @returns {Object|null} Plugin instance
-   */
-  getPlugin(name) {
-    return this.#pluginSystem.get(name);
-  }
-
-  /**
-   * Render the table
-   * Plugins can intercept render:before, render:header, render:body, render:footer
-   */
-  render() {
-    const state = this.#stateManager.getState();
-
-    // Emit before render (plugins can modify data)
-    const result = this.#eventBus.emit('render:before', { state });
-    if (result === false) return;
-
-    // Render header
-    this.#renderHeader(state);
-
-    // Render body
-    this.#renderBody(state);
-
-    // Render footer
-    this.#renderFooter(state);
-
-    // Render overlay (loading/error)
-    this.#renderOverlay(state);
-
-    // Emit after render (plugins can decorate)
-    this.#eventBus.emit('render:after', { state, slots: this.#slots });
-  }
-
-  /**
-   * Render overlay (loading/error states)
-   * @private
-   * @param {Object} state - Current state
-   */
-  #renderOverlay(state) {
-    const { isLoading, error } = state;
-
-    if (isLoading) {
-      this.#slots.overlay.innerHTML = `
-      <div class="bw-datatable__overlay-content bw-datatable__overlay--loading">
-        <span class="bw-datatable__spinner"></span>
-        <span class="bw-datatable__overlay-text">${
-          this.#options.loadingText
-        }</span>
-      </div>
-    `;
-      this.#slots.overlay.classList.add('bw-datatable__overlay--visible');
-    } else if (error) {
-      this.#slots.overlay.innerHTML = `
-      <div class="bw-datatable__overlay-content bw-datatable__overlay--error">
-        <span class="bw-datatable__error-icon">⚠️</span>
-        <span class="bw-datatable__overlay-text">${error}</span>
-      </div>
-    `;
-      this.#slots.overlay.classList.add('bw-datatable__overlay--visible');
-    } else {
-      this.#slots.overlay.innerHTML = '';
-      this.#slots.overlay.classList.remove('bw-datatable__overlay--visible');
-    }
-  }
-
-  /**
-   * Render table header
-   * @private
-   * @param {Object} state - Current state
-   */
-  #renderHeader(state) {
-    const intercepted = this.#eventBus.emit('render:header', {
-      state,
-      slot: this.#slots.header,
-    });
-    if (intercepted === false) return;
-
-    const { columns, sort, selected, columnWidths } = state;
-
-    // Check if all visible rows are selected
-    const start = this.#options.paginated ? state.page * state.pageSize : 0;
-    const end = this.#options.paginated
-      ? start + state.pageSize
-      : state.rows.length;
-    const visibleRows = state.rows.slice(start, end);
-    const allSelected =
-      visibleRows.length > 0 &&
-      visibleRows.every((row) => selected.has(this.#getRowId(row)));
-
-    let html = '<tr>';
-
-    // Selection checkbox column
-    if (this.#options.selectable && state.selectionMode !== 'none') {
-      html += `<th class="bw-datatable__th bw-datatable__th--checkbox">
-      <input type="checkbox" data-select-all ${allSelected ? 'checked' : ''}>
-    </th>`;
-    }
-
-    // Data columns
-    for (const column of columns) {
-      if (state.hiddenColumns?.includes(column.id)) continue;
-
-      const sortInfo = sort.find((s) => s.column === column.id);
-      const sortClass = sortInfo
-        ? `bw-datatable__th--sort-${sortInfo.dir}`
-        : '';
-      const sortable = this.#options.sortable && column.sortable !== false;
-      const resizable = this.#options.resizable && column.resizable !== false;
-
-      // Get width from state or column definition
-      const width = columnWidths?.[column.id] || column.width;
-      const widthStyle = width
-        ? `width: ${width}px; min-width: ${width}px;`
-        : '';
-
-      html += `
-      <th class="bw-datatable__th ${sortClass} ${
-        sortable ? 'bw-datatable__th--sortable' : ''
-      }"
-          data-column="${column.id}"
-          style="${widthStyle}">
-        <span class="bw-datatable__th-content">${
-          column.header || column.id
-        }</span>
-        ${sortable ? '<span class="bw-datatable__th-sort"></span>' : ''}
-        ${
-          resizable
-            ? '<span class="bw-datatable__resize-handle" data-resize="' +
-              column.id +
-              '"></span>'
-            : ''
+  #handleEditKeyDown(e) {
+    if (!this.#editingCell) return;
+
+    const input = e.target;
+    const { rowIndex, colIndex } = this.#editingCell;
+    const totalCols = this.#columns.length;
+    const totalRows = this.#view.length;
+
+    switch (e.key) {
+      case 'Enter':
+        e.preventDefault();
+        e.stopPropagation();
+        this.#skipBlurSave = true;
+        this.#saveEdit(input.value);
+        // Move to next row, stay in same column
+        if (rowIndex < totalRows - 1) {
+          this.#setFocusedCell(rowIndex + 1, colIndex);
         }
-      </th>
-    `;
-    }
+        this.#skipBlurSave = false;
+        break;
 
-    html += '</tr>';
-    this.#slots.header.innerHTML = html;
+      case 'Tab':
+        e.preventDefault();
+        e.stopPropagation();
+        this.#skipBlurSave = true;
+        this.#saveEdit(input.value);
+        // Move to next/prev cell and start editing
+        if (e.shiftKey) {
+          if (colIndex > 0) {
+            this.#startEditing(rowIndex, colIndex - 1);
+          } else if (rowIndex > 0) {
+            this.#startEditing(rowIndex - 1, totalCols - 1);
+          } else {
+            this.#setFocusedCell(rowIndex, colIndex);
+          }
+        } else {
+          if (colIndex < totalCols - 1) {
+            this.#startEditing(rowIndex, colIndex + 1);
+          } else if (rowIndex < totalRows - 1) {
+            this.#startEditing(rowIndex + 1, 0);
+          } else {
+            this.#setFocusedCell(rowIndex, colIndex);
+          }
+        }
+        this.#skipBlurSave = false;
+        break;
+
+      case 'Escape':
+        e.preventDefault();
+        e.stopPropagation();
+        this.#skipBlurSave = true;
+        this.#cancelEdit();
+        this.#skipBlurSave = false;
+        break;
+    }
   }
 
-  /**
-   * Render table body
-   * @private
-   * @param {Object} state - Current state
-   */
-  #renderBody(state) {
-    const intercepted = this.#eventBus.emit('render:body', {
-      state,
-      slot: this.#slots.body,
-    });
-    if (intercepted === false) return;
+  // ==========================================================================
+  // VIEWPORT CALCULATION
+  // ==========================================================================
 
-    const { rows, columns, selected, columnWidths } = state;
+  #calculateViewport() {
+    this.#viewportHeight = this.#scrollContainer.clientHeight;
+  }
 
-    // Paginate
-    const start = this.#options.paginated ? state.page * state.pageSize : 0;
-    const end = this.#options.paginated ? start + state.pageSize : rows.length;
-    const visibleRows = rows.slice(start, end);
+  #getVisibleRange() {
+    const totalRows = this.#view.length;
 
-    // Calculate colspan
-    const visibleColumns = columns.filter(
-      (c) => !state.hiddenColumns?.includes(c.id)
-    );
-    const colspan =
-      visibleColumns.length +
-      (this.#options.selectable && state.selectionMode !== 'none' ? 1 : 0);
+    // Calculate visible start
+    const visibleStart = Math.floor(this.#scrollTop / this.#rowHeight);
+    const visibleCount = Math.ceil(this.#viewportHeight / this.#rowHeight);
 
+    // Buffer = 100% of visible (so we render 2x visible rows total)
+    const buffer = visibleCount;
+    const start = Math.max(0, visibleStart - buffer);
+    const end = Math.min(totalRows, visibleStart + visibleCount + buffer);
+
+    return { start, end, visibleStart, visibleCount };
+  }
+
+  // ==========================================================================
+  // RENDERING - THE CORE
+  // ==========================================================================
+
+  #render(force = false) {
+    const totalRows = this.#view.length;
+    const totalHeight = totalRows * this.#rowHeight;
+
+    // Spacer creates the scrollable height
+    this.#heightSpacer.style.height = `${totalHeight}px`;
+
+    // Get visible range
+    const range = this.#getVisibleRange();
+
+    // Only skip re-render if range unchanged AND not forced
+    if (
+      !force &&
+      range.start === this.#renderedRange.start &&
+      range.end === this.#renderedRange.end
+    ) {
+      return;
+    }
+
+    this.#renderedRange = range;
+
+    // Calculate offset for positioning
+    const offsetY = range.start * this.#rowHeight;
+
+    // Build rows HTML
     let html = '';
 
-    for (const row of visibleRows) {
-      const rowId = this.#getRowId(row);
-      const isSelected = selected.has(rowId);
+    for (let i = range.start; i < range.end; i++) {
+      const dataIndex = this.#view[i];
+      const row = this.#data[dataIndex];
+      const rowId = this.#getRowId(row, dataIndex);
+      const isSelected = this.#selected.has(rowId);
 
       html += `<tr class="bw-datatable__row ${
         isSelected ? 'bw-datatable__row--selected' : ''
-      }" data-row-id="${rowId}">`;
+      }" data-row-id="${rowId}" data-view-index="${i}">`;
 
-      // Selection checkbox
-      if (this.#options.selectable && state.selectionMode !== 'none') {
-        html += `<td class="bw-datatable__td bw-datatable__td--checkbox">
-        <input type="checkbox" ${
-          isSelected ? 'checked' : ''
-        } data-select-row="${rowId}">
-      </td>`;
+      // Checkbox
+      if (this.#options.selectable) {
+        html += `
+          <td class="bw-datatable__td bw-datatable__td--checkbox">
+            <input type="checkbox" 
+              class="bw-datatable__row-checkbox" 
+              data-row-id="${rowId}"
+              ${isSelected ? 'checked' : ''}>
+          </td>
+        `;
       }
 
       // Data cells
-      for (const column of columns) {
-        if (state.hiddenColumns?.includes(column.id)) continue;
+      for (let colIdx = 0; colIdx < this.#columns.length; colIdx++) {
+        const col = this.#columns[colIdx];
+        const value = row[col.field || col.id];
 
-        const value = this.#getCellValue(row, column);
-        const formatted = this.#formatValue(value, column);
+        const isFocused =
+          this.#focusedCell &&
+          this.#focusedCell.rowIndex === i &&
+          this.#focusedCell.colIndex === colIdx;
 
-        // Apply column width
-        const width = columnWidths?.[column.id] || column.width;
+        const isEditing =
+          this.#editingCell &&
+          this.#editingCell.rowIndex === i &&
+          this.#editingCell.colIndex === colIdx;
+
+        const focusClass = isFocused ? 'bw-datatable__td--focused' : '';
+        const editClass = isEditing ? 'bw-datatable__td--editing' : '';
+
+        const width = this.#columnWidths.get(col.id) || col.width;
         const widthStyle = width
-          ? `width: ${width}px; min-width: ${width}px; max-width: ${width}px;`
+          ? `width:${typeof width === 'number' ? width + 'px' : width};`
           : '';
 
-        html += `<td class="bw-datatable__td" data-cell="${column.id}" style="${widthStyle}">${formatted}</td>`;
+        html += `<td class="bw-datatable__td ${focusClass} ${editClass}" 
+                     tabindex="${isFocused ? '0' : '-1'}"
+                     data-col-index="${colIdx}"
+                     style="${widthStyle}">`;
+
+        if (isEditing) {
+          const escapedValue = this.#escapeHtml(String(value ?? ''));
+          html += `<input type="text" 
+                          class="bw-datatable__edit-input" 
+                          value="${escapedValue.replace(/"/g, '&quot;')}"
+                          data-original="${escapedValue.replace(
+                            /"/g,
+                            '&quot;'
+                          )}">`;
+        } else {
+          const formatted = this.#formatValue(value, col, row);
+          html += formatted;
+        }
+
+        html += '</td>';
       }
 
       html += '</tr>';
     }
 
-    this.#slots.body.innerHTML = html;
+    // Update DOM
+    this.#tbody.innerHTML = html;
 
-    // Empty state
-    if (!visibleRows.length) {
-      const emptyText = this.#options.emptyText || 'No data available';
-      this.#slots.body.innerHTML = `
-    <tr class="bw-datatable__row--empty">
-      <td colspan="${colspan}">
-        <div class="bw-datatable__empty">
-          <span class="bw-datatable__empty-icon">📭</span>
-          <span class="bw-datatable__empty-text">${emptyText}</span>
-        </div>
-      </td>
-    </tr>
-  `;
-      return;
+    // Position tbody using transform to show correct rows at scroll position
+    this.#tbody.style.transform = `translateY(${offsetY}px)`;
+
+    // Bind edit input events if editing
+    if (this.#editingCell) {
+      const input = this.#tbody.querySelector('.bw-datatable__edit-input');
+      if (input) {
+        input.addEventListener('keydown', (e) => this.#handleEditKeyDown(e));
+        input.addEventListener('blur', (e) => {
+          // Save on blur unless explicitly skipped (keyboard nav) or cancelled
+          if (this.#editingCell && !this.#skipBlurSave) {
+            this.#saveEdit(e.target.value);
+          }
+        });
+      }
     }
+
+    // Update header select-all checkbox
+    this.#updateSelectAllCheckbox();
   }
 
-  /**
-   * Format cell value based on type
-   * @private
-   * @param {*} value - Raw value
-   * @param {Object} column - Column definition
-   * @returns {string} Formatted value
-   */
-  #formatValue(value, column) {
-    // Custom formatter
-    if (column.formatter) {
-      return column.formatter(value, column);
+  #getRowId(row, index) {
+    const idField = this.#options.rowId;
+    if (typeof idField === 'function') {
+      return String(idField(row, index));
     }
+    return String(row[idField] ?? `__row_${index}`);
+  }
 
+  #formatValue(value, col, row) {
     // Null/undefined
-    if (value === null || value === undefined) {
-      return '';
+    if (value === null || value === undefined) return '';
+
+    // Custom renderer
+    if (col.render && typeof col.render === 'function') {
+      return col.render(value, row, col);
     }
 
-    // By type
-    switch (column.type) {
-      case 'number':
-        return Number(value).toLocaleString();
+    // Type formatting
+    switch (col.type) {
       case 'boolean':
         return value ? '✓' : '✗';
+      case 'number':
+        return typeof value === 'number' ? value.toLocaleString() : value;
       case 'date':
-        return new Date(value).toLocaleDateString();
-      default:
+        if (value instanceof Date) return value.toLocaleDateString();
         return String(value);
+      default:
+        return this.#escapeHtml(String(value));
     }
   }
 
-  /**
-   * Render table footer (pagination)
-   * @private
-   * @param {Object} state - Current state
-   */
-  #renderFooter(state) {
-    // Allow plugin to intercept
-    const intercepted = this.#eventBus.emit('render:footer', {
-      state,
-      slot: this.#slots.footer,
-    });
-    if (intercepted === false) return;
+  #escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
 
-    if (!this.#options.paginated) {
-      this.#slots.footer.innerHTML = '';
-      return;
+  // ==========================================================================
+  // SORTING
+  // ==========================================================================
+
+  #handleSort(columnId) {
+    // Toggle direction
+    let direction = 'asc';
+    if (this.#sort.column === columnId) {
+      if (this.#sort.direction === 'asc') {
+        direction = 'desc';
+      } else if (this.#sort.direction === 'desc') {
+        direction = null; // Remove sort
+      }
     }
 
-    const { page, pageSize, totalRows } = state;
-    const totalPages = Math.ceil(totalRows / pageSize);
-    const start = totalRows === 0 ? 0 : page * pageSize + 1;
-    const end = Math.min((page + 1) * pageSize, totalRows);
-
-    this.#slots.footer.innerHTML = `
-      <div class="bw-datatable__pagination">
-        <div class="bw-datatable__pagination-info">
-          Showing ${start} to ${end} of ${totalRows} entries
-        </div>
-        <div class="bw-datatable__pagination-controls">
-          <button class="bw-datatable__pagination-btn" data-page="first" ${
-            page === 0 ? 'disabled' : ''
-          }>«</button>
-          <button class="bw-datatable__pagination-btn" data-page="prev" ${
-            page === 0 ? 'disabled' : ''
-          }>‹</button>
-          <span class="bw-datatable__pagination-pages">Page ${page + 1} of ${
-      totalPages || 1
-    }</span>
-          <button class="bw-datatable__pagination-btn" data-page="next" ${
-            page >= totalPages - 1 ? 'disabled' : ''
-          }>›</button>
-          <button class="bw-datatable__pagination-btn" data-page="last" ${
-            page >= totalPages - 1 ? 'disabled' : ''
-          }>»</button>
-        </div>
-      </div>
-    `;
+    this.sort(columnId, direction);
   }
 
   /**
    * Sort by column
-   *
    * @param {string} columnId - Column ID
-   * @param {string} dir - Direction: 'asc' | 'desc' | null (toggle)
+   * @param {string|null} direction - 'asc', 'desc', or null
    */
-  sort(columnId, dir = null) {
-    const state = this.#stateManager.getState();
-    const currentSort = state.sort.find((s) => s.column === columnId);
+  sort(columnId, direction = 'asc') {
+    this.#sort = { column: direction ? columnId : null, direction };
 
-    // Determine new direction
-    if (dir === null) {
-      if (!currentSort) dir = 'asc';
-      else if (currentSort.dir === 'asc') dir = 'desc';
-      else dir = null; // Remove sort
-    }
+    this.#withLoader(() => {
+      // Rebuild view
+      this.#rebuildView();
 
-    // Emit before event (can be cancelled/modified)
-    const result = this.#eventBus.emit('sort:before', { columnId, dir });
-    if (result === false) return;
+      // Re-render header (for sort indicator)
+      this.#renderHeader();
 
-    // Build new sort array (single sort)
-    const newSort = dir ? [{ column: columnId, dir }] : [];
+      // Reset scroll and force render
+      this.#scrollContainer.scrollTop = 0;
+      this.#scrollTop = 0;
+      this.#renderedRange = { start: -1, end: -1 };
+      this.#render(true);
 
-    // Sort rows
-    const rows = [...state.data];
-    if (newSort.length) {
-      const column = state.columns.find((c) => c.id === columnId);
-      rows.sort((a, b) => {
-        const aVal = this.#getCellValue(a, column);
-        const bVal = this.#getCellValue(b, column);
+      this.#emit('sort', { column: columnId, direction });
+      this.#emit('sort:after', { column: columnId, direction });
+    });
+  }
 
-        // Handle null/undefined
-        if (aVal == null && bVal == null) return 0;
-        if (aVal == null) return 1;
-        if (bVal == null) return -1;
+  // ==========================================================================
+  // FILTERING
+  // ==========================================================================
 
-        let cmp = 0;
-        if (aVal < bVal) cmp = -1;
-        else if (aVal > bVal) cmp = 1;
+  /**
+   * Filter by search term
+   * @param {string} term - Search term
+   */
+  filter(term) {
+    this.#globalFilter = term?.toLowerCase() || '';
 
-        return dir === 'desc' ? -cmp : cmp;
-      });
-    }
+    this.#withLoader(() => {
+      // Rebuild view
+      this.#rebuildView();
 
-    // Update state
-    this.#stateManager.setState(
-      { sort: newSort, rows, page: 0 },
-      { silent: true }
-    );
-    this.render();
+      // Reset scroll and force render
+      this.#scrollContainer.scrollTop = 0;
+      this.#scrollTop = 0;
+      this.#renderedRange = { start: -1, end: -1 };
+      this.#render(true);
 
-    // Emit after event
-    this.#eventBus.emit('sort:after', { columnId, dir, rows });
-
-    // Callback
-    if (this.#options.onSort) {
-      this.#options.onSort({ column: columnId, dir }, this);
-    }
+      this.#emit('filter', { term });
+      this.#emit('filter:after', { term, count: this.#view.length });
+    });
   }
 
   /**
-   * Filter rows
-   *
-   * @param {string} columnId - Column ID (or 'global' for global filter)
+   * Filter by column
+   * @param {string} columnId - Column ID
    * @param {*} value - Filter value
    */
-  filter(columnId, value) {
-    const state = this.#stateManager.getState();
-
-    // Emit before event
-    const result = this.#eventBus.emit('filter:before', { columnId, value });
-    if (result === false) return;
-
-    let filters = { ...state.filters };
-    let globalFilter = state.globalFilter;
-
-    if (columnId === 'global') {
-      globalFilter = value;
+  filterColumn(columnId, value) {
+    if (value === '' || value === null || value === undefined) {
+      delete this.#columnFilters[columnId];
     } else {
-      if (value === '' || value === null || value === undefined) {
-        delete filters[columnId];
-      } else {
-        filters[columnId] = value;
-      }
+      this.#columnFilters[columnId] = value;
     }
 
-    // Filter rows
-    let rows = [...state.data];
+    this.#withLoader(() => {
+      this.#rebuildView();
+      this.#scrollContainer.scrollTop = 0;
+      this.#scrollTop = 0;
+      this.#renderedRange = { start: -1, end: -1 };
+      this.#render(true);
+    });
+  }
 
-    // Global filter
-    if (globalFilter) {
-      const term = String(globalFilter).toLowerCase();
-      rows = rows.filter((row) => {
-        return state.columns.some((col) => {
-          const val = this.#getCellValue(row, col);
-          return String(val).toLowerCase().includes(term);
+  /**
+   * Clear all filters
+   */
+  clearFilters() {
+    this.#globalFilter = '';
+    this.#columnFilters = {};
+
+    const searchInput = this.#wrapper.querySelector('.bw-datatable__search');
+    if (searchInput) searchInput.value = '';
+
+    this.#withLoader(() => {
+      this.#rebuildView();
+      this.#scrollContainer.scrollTop = 0;
+      this.#scrollTop = 0;
+      this.#renderedRange = { start: -1, end: -1 };
+      this.#render(true);
+
+      this.#emit('filter:clear');
+    });
+  }
+
+  /**
+   * Clear sort
+   */
+  clearSort() {
+    this.#sort = { column: null, direction: null };
+
+    this.#withLoader(() => {
+      this.#rebuildView();
+      this.#renderHeader();
+      this.#scrollContainer.scrollTop = 0;
+      this.#scrollTop = 0;
+      this.#renderedRange = { start: -1, end: -1 };
+      this.#render(true);
+
+      this.#emit('sort:clear');
+    });
+  }
+
+  /**
+   * Reset table (clear filters and sort)
+   */
+  reset() {
+    this.#globalFilter = '';
+    this.#columnFilters = {};
+    this.#sort = { column: null, direction: null };
+
+    const searchInput = this.#wrapper.querySelector('.bw-datatable__search');
+    if (searchInput) searchInput.value = '';
+
+    this.#withLoader(() => {
+      this.#rebuildView();
+      this.#renderHeader();
+      this.#scrollContainer.scrollTop = 0;
+      this.#scrollTop = 0;
+      this.#renderedRange = { start: -1, end: -1 };
+      this.#render(true);
+
+      this.#emit('reset');
+    });
+  }
+
+  // ==========================================================================
+  // VIEW BUILDING (Filter + Sort)
+  // ==========================================================================
+
+  #rebuildView() {
+    // Start with all indices
+    let indices = this.#data.map((_, i) => i);
+
+    // Apply global filter
+    if (this.#globalFilter) {
+      const term = this.#globalFilter;
+      indices = indices.filter((i) => {
+        const row = this.#data[i];
+        return this.#columns.some((col) => {
+          const value = row[col.field || col.id];
+          return String(value ?? '')
+            .toLowerCase()
+            .includes(term);
         });
       });
     }
 
-    // Column filters
-    for (const [colId, filterVal] of Object.entries(filters)) {
-      const column = state.columns.find((c) => c.id === colId);
-      if (!column) continue;
+    // Apply column filters
+    for (const [columnId, filterValue] of Object.entries(this.#columnFilters)) {
+      const col = this.#columns.find((c) => c.id === columnId);
+      if (!col) continue;
 
-      const term = String(filterVal).toLowerCase();
-      rows = rows.filter((row) => {
-        const val = this.#getCellValue(row, column);
-        return String(val).toLowerCase().includes(term);
+      const field = col.field || col.id;
+      const filterLower = String(filterValue).toLowerCase();
+
+      indices = indices.filter((i) => {
+        const value = this.#data[i][field];
+        return String(value ?? '')
+          .toLowerCase()
+          .includes(filterLower);
       });
     }
 
-    // Re-apply sort if active
-    if (state.sort.length) {
-      const sortInfo = state.sort[0];
-      const column = state.columns.find((c) => c.id === sortInfo.column);
-      rows.sort((a, b) => {
-        const aVal = this.#getCellValue(a, column);
-        const bVal = this.#getCellValue(b, column);
+    // Apply sort
+    if (this.#sort.column && this.#sort.direction) {
+      const col = this.#columns.find((c) => c.id === this.#sort.column);
+      const field = col?.field || this.#sort.column;
+      const mult = this.#sort.direction === 'asc' ? 1 : -1;
+      const type = col?.type || 'string';
 
-        if (aVal == null && bVal == null) return 0;
-        if (aVal == null) return 1;
-        if (bVal == null) return -1;
+      indices.sort((aIdx, bIdx) => {
+        const a = this.#data[aIdx][field];
+        const b = this.#data[bIdx][field];
 
-        let cmp = 0;
-        if (aVal < bVal) cmp = -1;
-        else if (aVal > bVal) cmp = 1;
+        // Null handling
+        if (a == null && b == null) return 0;
+        if (a == null) return 1;
+        if (b == null) return -1;
 
-        return sortInfo.dir === 'desc' ? -cmp : cmp;
+        // Compare based on type
+        let result;
+        switch (type) {
+          case 'number':
+            result = Number(a) - Number(b);
+            break;
+          case 'date':
+            result = new Date(a).getTime() - new Date(b).getTime();
+            break;
+          default:
+            result = String(a).localeCompare(String(b));
+        }
+
+        return result * mult;
       });
     }
 
-    // Update state
-    this.#stateManager.setState(
-      {
-        filters,
-        globalFilter,
-        rows,
-        page: 0,
-        totalRows: rows.length,
-      },
-      { silent: true }
-    );
-    this.render();
+    this.#view = indices;
+  }
 
-    // Emit after event
-    this.#eventBus.emit('filter:after', { filters, globalFilter, rows });
+  // ==========================================================================
+  // SELECTION
+  // ==========================================================================
 
-    // Callback
-    if (this.#options.onFilter) {
-      this.#options.onFilter({ filters, globalFilter }, this);
+  #handleRowSelect(rowId, selected) {
+    if (selected) {
+      this.#selected.add(rowId);
+    } else {
+      this.#selected.delete(rowId);
     }
+
+    // Force re-render visible rows to update checkboxes
+    this.#render(true);
+
+    this.#emit('selection:change', {
+      selected: Array.from(this.#selected),
+      count: this.#selected.size,
+    });
   }
 
-  /**
-   * Go to page
-   *
-   * @param {number} page - Page number (0-indexed)
-   */
-  goToPage(page) {
-    const state = this.#stateManager.getState();
-    const totalPages = Math.ceil(state.totalRows / state.pageSize);
+  #handleSelectAll(selected) {
+    this.#withLoader(() => {
+      if (selected) {
+        // Select all rows in current view (filtered data)
+        this.#view.forEach((dataIndex) => {
+          const row = this.#data[dataIndex];
+          const rowId = this.#getRowId(row, dataIndex);
+          this.#selected.add(rowId);
+        });
+      } else {
+        this.#selected.clear();
+      }
 
-    // Clamp page
-    page = Math.max(0, Math.min(page, totalPages - 1));
+      // Force re-render
+      this.#render(true);
 
-    if (page === state.page) return;
-
-    // Update state and render
-    this.#stateManager.setState({ page }, { silent: true });
-    this.render();
-
-    // Callback
-    if (this.#options.onPageChange) {
-      this.#options.onPageChange(page, this);
-    }
+      this.#emit('selection:change', {
+        selected: Array.from(this.#selected),
+        count: this.#selected.size,
+      });
+    });
   }
 
-  /**
-   * Set page size
-   *
-   * @param {number} size - Rows per page
-   */
-  setPageSize(size) {
-    this.#stateManager.setState({ pageSize: size, page: 0 }, { silent: true });
-    this.render();
+  #updateSelectAllCheckbox() {
+    const checkbox = this.#thead.querySelector('.bw-datatable__select-all');
+    if (!checkbox) return;
+
+    const totalVisible = this.#view.length;
+    const selectedVisible = this.#view.filter((dataIndex) => {
+      const row = this.#data[dataIndex];
+      const rowId = this.#getRowId(row, dataIndex);
+      return this.#selected.has(rowId);
+    }).length;
+
+    checkbox.checked = totalVisible > 0 && selectedVisible === totalVisible;
+    checkbox.indeterminate =
+      selectedVisible > 0 && selectedVisible < totalVisible;
   }
 
-  /**
-   * Get current data (filtered/sorted)
-   *
-   * @returns {Array} Current rows
-   */
-  getData() {
-    return [...this.#stateManager.get('rows')];
+  // Public selection methods
+  selectAll() {
+    this.#handleSelectAll(true);
   }
 
-  /**
-   * Get original data (unfiltered/unsorted)
-   *
-   * @returns {Array} Original data
-   */
-  getOriginalData() {
-    return [...this.#stateManager.get('data')];
+  clearSelection() {
+    this.#selected.clear();
+    this.#render(true);
+    this.#emit('selection:change', { selected: [], count: 0 });
   }
+
+  getSelected() {
+    return this.#view
+      .map((dataIndex) => this.#data[dataIndex])
+      .filter((row) =>
+        this.#selected.has(this.#getRowId(row, this.#data.indexOf(row)))
+      );
+  }
+
+  getSelectedIds() {
+    return Array.from(this.#selected);
+  }
+
+  // ==========================================================================
+  // PUBLIC API
+  // ==========================================================================
 
   /**
    * Set new data
-   *
-   * @param {Array|Object} data - New data (array or object with dataPath)
+   * @param {Array} data - New data array
    */
   setData(data) {
-    const extracted = this.#extractData(data);
+    this.#data = data || [];
+    this.#selected.clear();
 
-    // Auto-detect columns if not provided
-    const columns = this.#options.columns || this.#autoDetectColumns(extracted);
+    // For setData, check NEW data size
+    const needsLoader = this.#data.length > this.#loaderThreshold;
 
-    this.#stateManager.setState(
-      {
-        data: extracted,
-        rows: [...extracted],
-        columns: columns,
-        columnOrder: columns.map((c) => c.id),
-        totalRows: extracted.length,
-        page: 0,
-        selected: new Set(),
-        sort: [],
-        filters: {},
-        globalFilter: '',
-      },
-      { silent: true }
-    );
-    this.render();
+    if (needsLoader) {
+      this.#showLoader();
+      setTimeout(() => {
+        this.#rebuildView();
+        this.#scrollContainer.scrollTop = 0;
+        this.#scrollTop = 0;
+        this.#renderedRange = { start: -1, end: -1 };
+        this.#render(true);
+        this.#hideLoader();
+      }, 10);
+    } else {
+      this.#rebuildView();
+      this.#scrollContainer.scrollTop = 0;
+      this.#scrollTop = 0;
+      this.#renderedRange = { start: -1, end: -1 };
+      this.#render(true);
+    }
   }
 
   /**
-   * Get selected rows
-   *
-   * @returns {Array} Selected row data
+   * Get all data
+   * @returns {Array}
    */
-  getSelected() {
-    const state = this.#stateManager.getState();
-    const selectedIds = state.selected;
-    return state.rows.filter((row) => selectedIds.has(this.#getRowId(row)));
+  getData() {
+    return this.#data;
   }
 
   /**
-   * Get selected row IDs
-   *
-   * @returns {Array} Selected row IDs
+   * Get filtered data
+   * @returns {Array}
    */
-  getSelectedIds() {
-    return [...this.#stateManager.get('selected')];
+  getFilteredData() {
+    return this.#view.map((i) => this.#data[i]);
   }
 
   /**
-   * Select rows by ID
-   *
-   * @param {Array} ids - Row IDs to select
+   * Get row count
+   * @returns {Object} { total, filtered }
    */
-  select(ids) {
-    this.#stateManager.setState({ selected: new Set(ids) }, { silent: true });
-    this.render();
+  getRowCount() {
+    return {
+      total: this.#data.length,
+      filtered: this.#view.length,
+    };
   }
 
   /**
-   * Clear selection
+   * Scroll to row
+   * @param {number} index - Row index
    */
-  clearSelection() {
-    this.#stateManager.setState({ selected: new Set() }, { silent: true });
-    this.render();
+  scrollToRow(index) {
+    const top = index * this.#rowHeight;
+    this.#scrollContainer.scrollTop = top;
   }
 
   /**
-   * Refresh/re-render table
+   * Scroll to top
    */
-  refresh() {
-    this.render();
+  scrollToTop() {
+    this.#scrollContainer.scrollTop = 0;
   }
 
   /**
-   * Reload data (re-apply current filters/sort)
+   * Scroll to bottom
    */
-  reload() {
-    const state = this.#stateManager.getState();
-
-    // Re-filter and re-sort from original data
-    this.filter('global', state.globalFilter);
+  scrollToBottom() {
+    this.#scrollContainer.scrollTop = this.#view.length * this.#rowHeight;
   }
 
   /**
-   * Reset to initial state (clear filters, sort, selection)
+   * Update a cell value programmatically
+   * @param {string} rowId - Row ID
+   * @param {string} columnId - Column ID
+   * @param {*} value - New value
    */
-  reset() {
-    const state = this.#stateManager.getState();
+  updateCell(rowId, columnId, value) {
+    // Find row by ID
+    const dataIndex = this.#data.findIndex((row, i) => {
+      return this.#getRowId(row, i) === String(rowId);
+    });
 
-    this.#stateManager.setState(
-      {
-        rows: [...state.data],
-        sort: [],
-        filters: {},
-        globalFilter: '',
-        selected: new Set(),
-        page: 0,
-        totalRows: state.data.length,
-      },
-      { silent: true }
-    );
-    this.render();
+    if (dataIndex === -1) return false;
+
+    const row = this.#data[dataIndex];
+    const column = this.#columns.find((c) => c.id === columnId);
+    if (!column) return false;
+
+    const field = column.field || column.id;
+    const oldValue = row[field];
+
+    row[field] = value;
+
+    // Force re-render
+    this.#renderedRange = { start: -1, end: -1 };
+    this.#render(true);
+
+    this.#emit('cell:edit', {
+      rowId,
+      columnId,
+      field,
+      oldValue,
+      newValue: value,
+      row: { ...row },
+    });
+
+    return true;
   }
 
   /**
-   * Destroy table and cleanup
+   * Get row by ID
+   * @param {string} rowId - Row ID
+   * @returns {Object|null}
+   */
+  getRowById(rowId) {
+    const dataIndex = this.#data.findIndex((row, i) => {
+      return this.#getRowId(row, i) === String(rowId);
+    });
+
+    if (dataIndex === -1) return null;
+    return { ...this.#data[dataIndex] };
+  }
+
+  /**
+   * Update entire row
+   * @param {string} rowId - Row ID
+   * @param {Object} newData - New row data
+   */
+  updateRow(rowId, newData) {
+    const dataIndex = this.#data.findIndex((row, i) => {
+      return this.#getRowId(row, i) === String(rowId);
+    });
+
+    if (dataIndex === -1) return false;
+
+    const oldRow = { ...this.#data[dataIndex] };
+    this.#data[dataIndex] = { ...this.#data[dataIndex], ...newData };
+
+    // Force re-render
+    this.#renderedRange = { start: -1, end: -1 };
+    this.#render(true);
+
+    this.#emit('row:update', {
+      rowId,
+      oldRow,
+      newRow: { ...this.#data[dataIndex] },
+    });
+
+    return true;
+  }
+
+  /**
+   * Get state
+   * @returns {Object}
+   */
+  getState() {
+    return {
+      data: this.#data,
+      view: this.#view,
+      columns: this.#columns,
+      selected: Array.from(this.#selected),
+      sort: { ...this.#sort },
+      globalFilter: this.#globalFilter,
+      columnFilters: { ...this.#columnFilters },
+      columnWidths: Object.fromEntries(this.#columnWidths),
+      rowCount: this.#view.length,
+      totalCount: this.#data.length,
+    };
+  }
+
+  /**
+   * Set column width
+   * @param {string} columnId - Column ID
+   * @param {number} width - Width in pixels
+   */
+  setColumnWidth(columnId, width) {
+    this.#columnWidths.set(columnId, width);
+    this.#renderHeader();
+    this.#renderedRange = { start: -1, end: -1 };
+    this.#render();
+    this.#emit('column:resize', { columnId, width });
+  }
+
+  /**
+   * Get column width
+   * @param {string} columnId - Column ID
+   * @returns {number|undefined}
+   */
+  getColumnWidth(columnId) {
+    return this.#columnWidths.get(columnId);
+  }
+
+  /**
+   * Get all column widths
+   * @returns {Object}
+   */
+  getColumnWidths() {
+    return Object.fromEntries(this.#columnWidths);
+  }
+
+  /**
+   * Reset all column widths to default
+   */
+  resetColumnWidths() {
+    this.#columnWidths.clear();
+    this.#renderHeader();
+    this.#renderedRange = { start: -1, end: -1 };
+    this.#render();
+    this.#emit('column:resize:reset');
+  }
+
+  /**
+   * Destroy table
    */
   destroy() {
-    // Destroy plugins
-    this.#pluginSystem.destroyAll();
-
-    // Clear event bus
-    this.#eventBus.clear();
-
-    // Clear DOM
     this.#container.innerHTML = '';
-    this.#container.classList.remove(
-      'bw-datatable',
-      'bw-datatable--light',
-      'bw-datatable--dark',
-      'bw-datatable--auto',
-      'bw-datatable--striped',
-      'bw-datatable--bordered',
-      'bw-datatable--hoverable'
-    );
-
-    // Emit destroyed
-    this.#eventBus.emit('table:destroyed');
+    this.#eventHandlers = {};
   }
 
+  // ==========================================================================
+  // EVENTS
+  // ==========================================================================
+
   /**
-   * Subscribe to events
-   *
+   * Subscribe to event
    * @param {string} event - Event name
-   * @param {Function} callback - Handler
-   * @returns {Function} Unsubscribe function
+   * @param {Function} callback - Callback function
    */
   on(event, callback) {
-    return this.#eventBus.on(event, callback);
+    if (!this.#eventHandlers[event]) {
+      this.#eventHandlers[event] = [];
+    }
+    this.#eventHandlers[event].push(callback);
+    return this;
   }
 
   /**
-   * Unsubscribe from events
-   *
+   * Unsubscribe from event
    * @param {string} event - Event name
-   * @param {Function} callback - Handler
+   * @param {Function} callback - Callback function
    */
   off(event, callback) {
-    this.#eventBus.off(event, callback);
+    if (this.#eventHandlers[event]) {
+      this.#eventHandlers[event] = this.#eventHandlers[event].filter(
+        (cb) => cb !== callback
+      );
+    }
+    return this;
+  }
+
+  #emit(event, data = {}) {
+    if (this.#eventHandlers[event]) {
+      this.#eventHandlers[event].forEach((cb) => cb(data));
+    }
+  }
+
+  // ==========================================================================
+  // PLUGIN SYSTEM
+  // ==========================================================================
+
+  /**
+   * Create plugin API object
+   * @private
+   */
+  #createPluginAPI(pluginOptions) {
+    return {
+      table: this,
+      eventBus: {
+        on: (event, callback) => this.on(event, callback),
+        off: (event, callback) => this.off(event, callback),
+        emit: (event, data) => this.#emit(event, data),
+      },
+      getState: () => this.getState(),
+      getOptions: () => ({ ...this.#options }),
+      options: pluginOptions,
+    };
+  }
+
+  /**
+   * Use a plugin
+   * @param {Object|Function} plugin - Plugin to use
+   * @param {Object} options - Plugin options
+   * @returns {BWDataTable}
+   */
+  use(plugin, options = {}) {
+    // Create API for plugin
+    const api = this.#createPluginAPI(options);
+
+    try {
+      if (typeof plugin === 'function') {
+        // Class-style plugin: new Plugin(table, options)
+        const instance = new plugin(this, options);
+        if (instance.init) {
+          instance.init(api);
+        }
+        this.#plugins.push(instance);
+      } else if (plugin && typeof plugin.init === 'function') {
+        // Object-style plugin: { init: function(api) {} }
+        plugin.init(api);
+        this.#plugins.push(plugin);
+      } else {
+        console.warn('BWDataTable: Invalid plugin format', plugin);
+      }
+    } catch (error) {
+      console.error('BWDataTable: Plugin initialization failed', error);
+    }
+
+    return this;
   }
 }
 
-export default BWDataTable;
+// Export
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { BWDataTable };
+} else if (typeof window !== 'undefined') {
+  window.BWDataTable = BWDataTable;
+}
+
+export { BWDataTable };

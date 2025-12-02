@@ -1,248 +1,213 @@
 # @bw-ui/datatable-url-state
 
-URL state sync plugin for BW DataTable - Shareable links with filters, sort, and pagination.
+URL state synchronization plugin for BWDataTable.
 
-![Version](https://img.shields.io/npm/v/@bw-ui/datatable-url-state)
-![License](https://img.shields.io/npm/l/@bw-ui/datatable-url-state)
-![Size](https://img.shields.io/bundlephobia/minzip/@bw-ui/datatable-url-state)
-
-[Live Demo](https://bw-ui.github.io/bw-datatable) • [Documentation](https://www.npmjs.com/package/@bw-ui/datatable-url-state) • [Core Package](https://www.npmjs.com/package/@bw-ui/datatable)
-
-## ✨ Features
+## Features
 
 - 🔗 **Shareable Links** - Share table state via URL
-- ↕️ **Sync Sort** - Sort column and direction in URL
-- 🔍 **Sync Search** - Global search term in URL
-- 📄 **Sync Page** - Current page in URL
-- 🔙 **Browser History** - Back/Forward navigation support
-- 🔄 **Auto Restore** - Restore state from URL on load
+- 🔄 **State Persistence** - Sort, filter survive page refresh
+- ⬅️ **Browser History** - Back/forward navigation works
+- ⚙️ **Configurable** - Choose what state to sync
+- 🎯 **Prefix Support** - Multiple tables on same page
 
-## 📦 Installation
+## Installation
 
 ```bash
-npm install @bw-ui/datatable @bw-ui/datatable-url-state
+npm install @bw-ui/datatable-url-state
 ```
 
-> ⚠️ **Peer Dependency:** Requires `@bw-ui/datatable` core package
-
-## 🚀 Quick Start
-
-### ES Modules
+## Usage
 
 ```javascript
 import { BWDataTable } from '@bw-ui/datatable';
 import { UrlStatePlugin } from '@bw-ui/datatable-url-state';
 
-const table = new BWDataTable('#my-table', { data: myData }).use(
-  UrlStatePlugin
-);
-
-// URL auto-updates when you:
-// - Sort columns    → ?sort=name:asc
-// - Search          → ?search=john
-// - Change page     → ?page=3
-```
-
-### CDN
-
-```html
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/@bw-ui/datatable/dist/bw-datatable.min.css"
-/>
-<script src="https://unpkg.com/@bw-ui/datatable/dist/bw-datatable.min.js"></script>
-<script src="https://unpkg.com/@bw-ui/datatable-url-state/dist/url-state.min.js"></script>
-
-<script>
-  const table = new BWDataTable('#my-table', { data: myData }).use(BWUrlState);
-
-  // Sort a column - URL updates automatically
-  // Share the URL - recipient sees same view
-</script>
-```
-
-## ⚙️ Options
-
-```javascript
-.use(UrlStatePlugin, {
-  prefix: '',           // URL param prefix (e.g., 'table_')
-  pushState: true,      // Use pushState (true) or replaceState (false)
-  watchPopState: true,  // Listen for browser back/forward
-  syncPage: true,       // Sync page number to URL
-  syncSort: true,       // Sync sort to URL
-  syncFilter: true,     // Sync column filters to URL
-  syncSearch: true,     // Sync global search to URL
-})
-```
-
-### Options Reference
-
-| Option          | Type      | Default | Description                                          |
-| --------------- | --------- | ------- | ---------------------------------------------------- |
-| `prefix`        | `string`  | `''`    | Prefix for URL params (e.g., `'dt_'` → `?dt_page=2`) |
-| `pushState`     | `boolean` | `true`  | Create history entries (back button works)           |
-| `watchPopState` | `boolean` | `true`  | Sync state on browser back/forward                   |
-| `syncPage`      | `boolean` | `true`  | Sync current page to URL                             |
-| `syncSort`      | `boolean` | `true`  | Sync sort column and direction to URL                |
-| `syncFilter`    | `boolean` | `true`  | Sync column filters to URL                           |
-| `syncSearch`    | `boolean` | `true`  | Sync global search to URL                            |
-
-## 🔗 URL Format
-
-```
-?page=2&sort=name:asc&search=john&filter_role=Admin
-```
-
-| Param             | Example              | Description               |
-| ----------------- | -------------------- | ------------------------- |
-| `page`            | `?page=2`            | Current page (1-indexed)  |
-| `sort`            | `?sort=name:asc`     | Sort column and direction |
-| `search`          | `?search=john`       | Global search term        |
-| `filter_[column]` | `?filter_role=Admin` | Column filter             |
-
-## 📖 Examples
-
-### Basic Usage
-
-```javascript
-const table = new BWDataTable('#table', { data: myData }).use(UrlStatePlugin);
-
-// Sort by name ascending
-table.sort('name', 'asc');
-// URL: ?sort=name:asc
-
-// Search for "john"
-table.filter('global', 'john');
-// URL: ?sort=name:asc&search=john
-
-// Go to page 3
-table.goToPage(2);
-// URL: ?sort=name:asc&search=john&page=3
-```
-
-### With Prefix (Multiple Tables)
-
-```javascript
-// Table 1
-const table1 = new BWDataTable('#table1', { data: data1 }).use(UrlStatePlugin, {
-  prefix: 't1_',
+const table = new BWDataTable('#table', { data }).use(UrlStatePlugin, {
+  persist: true, // Save state to URL (default: true)
+  restore: true, // Restore state from URL on load (default: true)
+  prefix: 'dt_', // URL param prefix (default: 'dt_')
+  useHash: false, // Use hash instead of query string (default: false)
+  debounce: 300, // Debounce URL updates (default: 300ms)
 });
 
-// Table 2
-const table2 = new BWDataTable('#table2', { data: data2 }).use(UrlStatePlugin, {
-  prefix: 't2_',
-});
-
-// URL: ?t1_page=2&t1_sort=name:asc&t2_page=1&t2_sort=date:desc
+// URL automatically updates:
+// - Sort: ?dt_sort=name&dt_dir=asc
+// - Filter: ?dt_filter=john
+// - Page: ?dt_page=2
 ```
 
-### Disable History (Replace State)
+## Options
 
-```javascript
-.use(UrlStatePlugin, {
-  pushState: false,  // No history entries created
-})
+| Option      | Type       | Default                      | Description                       |
+| ----------- | ---------- | ---------------------------- | --------------------------------- |
+| `persist`   | `boolean`  | `true`                       | Save state changes to URL         |
+| `restore`   | `boolean`  | `true`                       | Restore state from URL on init    |
+| `prefix`    | `string`   | `'dt_'`                      | Prefix for URL parameters         |
+| `useHash`   | `boolean`  | `false`                      | Use hash (#) instead of query (?) |
+| `debounce`  | `number`   | `300`                        | Debounce delay in milliseconds    |
+| `syncState` | `string[]` | `['sort', 'filter', 'page']` | Which state to sync               |
 
-// User can't use browser back button to navigate table states
+## URL Parameters
+
+With default prefix `dt_`:
+
+| Parameter   | Description        | Example          |
+| ----------- | ------------------ | ---------------- |
+| `dt_sort`   | Sort column        | `dt_sort=name`   |
+| `dt_dir`    | Sort direction     | `dt_dir=asc`     |
+| `dt_filter` | Search/filter term | `dt_filter=john` |
+| `dt_page`   | Page number        | `dt_page=2`      |
+
+### Example URLs
+
+```
+# Sorted by name ascending
+https://app.com/users?dt_sort=name&dt_dir=asc
+
+# Filtered by "john"
+https://app.com/users?dt_filter=john
+
+# Combined
+https://app.com/users?dt_sort=salary&dt_dir=desc&dt_filter=engineer
+
+# With hash (useHash: true)
+https://app.com/users#dt_sort=name&dt_dir=asc
 ```
 
-### Sync Only Search
+## API
 
-```javascript
-.use(UrlStatePlugin, {
-  syncPage: false,
-  syncSort: false,
-  syncFilter: false,
-  syncSearch: true,   // Only sync search
-})
-```
-
-### URL State Events
-
-```javascript
-table.on('urlstate:change', ({ params }) => {
-  console.log('URL updated:', params);
-});
-
-table.on('urlstate:restore', ({ params }) => {
-  console.log('State restored from URL:', params);
-});
-```
-
-## 📖 API Methods
-
-```javascript
-// Get current state as URL params object
-table.getUrlState();
-// Returns: { page: 2, sort: 'name:asc', search: 'john' }
-
-// Set state from params object
-table.setUrlState({
-  page: 3,
-  sort: 'email:desc',
-  search: 'admin',
-});
-
-// Clear all URL state
-table.clearUrlState();
-
-// Manually sync from URL
-table.syncUrlToState();
-
-// Manually sync to URL
-table.syncStateToUrl();
-```
-
-## 🔄 Sharing Links
+### Methods
 
 ```javascript
 // Get shareable URL
-const shareUrl = window.location.href;
-console.log('Share this link:', shareUrl);
+const url = table.getShareableUrl?.();
+// Returns: "https://app.com/users?dt_sort=name&dt_dir=asc"
 
-// When recipient opens the link:
-// - Table auto-restores sort, search, page from URL
-// - They see exact same view
+// Get URL state plugin instance
+const urlState = table.plugins?.find((p) => p.name === 'url-state');
+
+// Get current state from URL
+const state = urlState?.getState();
+// Returns: { sortColumn: 'name', sortDirection: 'asc', filter: '' }
+
+// Set state programmatically
+urlState?.setState({ sortColumn: 'email', sortDirection: 'desc' });
+
+// Clear all URL state
+urlState?.clearState();
 ```
 
-## 🔌 Combining with Other Plugins
+## Events
 
 ```javascript
+// State changed and URL updated
+table.on('urlstate:change', ({ previous, current, url }) => {
+  console.log('URL state changed:', current);
+  console.log('New URL:', url);
+});
+
+// State restored from URL on init
+table.on('urlstate:restore', (state) => {
+  console.log('Restored from URL:', state);
+});
+```
+
+## Example: Share Button
+
+```html
+<button id="share">Share Link</button>
+```
+
+```javascript
+const table = new BWDataTable('#table', { data }).use(UrlStatePlugin);
+
+document.getElementById('share').addEventListener('click', async () => {
+  const url = window.location.href;
+
+  try {
+    await navigator.clipboard.writeText(url);
+    alert('Link copied to clipboard!');
+  } catch {
+    prompt('Copy this link:', url);
+  }
+});
+```
+
+## Example: Multiple Tables
+
+```javascript
+// Table 1
+const table1 = new BWDataTable('#users', { data: users }).use(UrlStatePlugin, {
+  prefix: 'users_',
+});
+
+// Table 2
+const table2 = new BWDataTable('#orders', { data: orders }).use(
+  UrlStatePlugin,
+  { prefix: 'orders_' }
+);
+
+// URL: ?users_sort=name&orders_sort=date
+```
+
+## Example: Hash-based State
+
+Useful for single-page apps where you can't change query string:
+
+```javascript
+const table = new BWDataTable('#table', { data }).use(UrlStatePlugin, {
+  useHash: true,
+});
+
+// URL: https://app.com/users#dt_sort=name&dt_dir=asc
+```
+
+## Browser History
+
+The plugin integrates with browser history:
+
+- **Back button** - Reverts to previous state
+- **Forward button** - Re-applies state
+- **Page refresh** - Restores state from URL
+
+```javascript
+// Listen for browser navigation
+window.addEventListener('popstate', () => {
+  // Plugin automatically handles this
+});
+```
+
+## TypeScript
+
+```typescript
 import { BWDataTable } from '@bw-ui/datatable';
-import { UrlStatePlugin } from '@bw-ui/datatable-url-state';
-import { HistoryPlugin } from '@bw-ui/datatable-history';
-import { ExportPlugin } from '@bw-ui/datatable-export';
+import {
+  UrlStatePlugin,
+  UrlStatePluginOptions,
+  UrlState,
+} from '@bw-ui/datatable-url-state';
 
-const table = new BWDataTable('#table', { data: myData })
-  .use(UrlStatePlugin) // URL sync
-  .use(HistoryPlugin) // Undo/Redo
-  .use(ExportPlugin); // Export
+const options: UrlStatePluginOptions = {
+  persist: true,
+  restore: true,
+  prefix: 'tbl_',
+  syncState: ['sort', 'filter'],
+};
 
-// All features work together
-// URL syncs, undo works, export available
+const table = new BWDataTable('#table', { data }).use(UrlStatePlugin, options);
+
+table.on('urlstate:change', ({ current }: { current: UrlState }) => {
+  console.log('Sort:', current.sortColumn, current.sortDirection);
+});
 ```
 
-## 📁 What's Included
+## Notes
 
-```
-dist/
-├── url-state.min.js       # IIFE build (for <script>)
-└── url-state.esm.min.js   # ESM build (for import)
-```
+- URL updates are debounced to prevent excessive history entries
+- State is restored after table initialization
+- Works with both hash and query string modes
+- Handles URL encoding/decoding automatically
 
-## 🔗 Related Packages
+## License
 
-| Package                                                                                | Description     |
-| -------------------------------------------------------------------------------------- | --------------- |
-| [@bw-ui/datatable](https://www.npmjs.com/package/@bw-ui/datatable)                     | Core (required) |
-| [@bw-ui/datatable-history](https://www.npmjs.com/package/@bw-ui/datatable-history)     | Undo/Redo       |
-| [@bw-ui/datatable-export](https://www.npmjs.com/package/@bw-ui/datatable-export)       | Export JSON/CSV |
-| [@bw-ui/datatable-clipboard](https://www.npmjs.com/package/@bw-ui/datatable-clipboard) | Copy/Paste      |
-
-## 📄 License
-
-MIT © [BW UI](https://github.com/bw-ui)
-
-## 🐛 Issues
-
-Found a bug? [Report it here](https://github.com/bw-ui/bw-datatable/issues)
+MIT © [BW UI](https://github.com/AshwinPavanKadha/bw-ui)

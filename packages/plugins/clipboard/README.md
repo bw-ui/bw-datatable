@@ -1,268 +1,196 @@
 # @bw-ui/datatable-clipboard
 
-Copy/Paste plugin for BW DataTable - Excel-compatible clipboard operations.
+Copy/Paste plugin for BWDataTable with Excel compatibility.
 
-![Version](https://img.shields.io/npm/v/@bw-ui/datatable-clipboard)
-![License](https://img.shields.io/npm/l/@bw-ui/datatable-clipboard)
-![Size](https://img.shields.io/bundlephobia/minzip/@bw-ui/datatable-clipboard)
+## Features
 
-[Live Demo](https://bw-ui.github.io/bw-datatable) • [Documentation](https://www.npmjs.com/package/@bw-ui/datatable-clipboard) • [Core Package](https://www.npmjs.com/package/@bw-ui/datatable)
+- 📋 **Copy to Clipboard** - Tab-separated format (Excel/Sheets compatible)
+- 📥 **Paste from Clipboard** - Parse and add rows from Excel/Sheets
+- ⌨️ **Keyboard Shortcuts** - Ctrl+C, Ctrl+V
+- 🎯 **Smart Paste** - Auto-detect headers, type conversion
 
-## ✨ Features
-
-- 📋 **Copy Rows** - Copy selected rows to clipboard
-- 📥 **Paste Data** - Paste from Excel, Sheets, or any tab-separated source
-- ⌨️ **Keyboard Shortcuts** - Ctrl+C, Ctrl+V (Cmd on Mac)
-- 📊 **Excel Compatible** - Tab-separated format works with Excel/Sheets
-- 🔄 **Type Conversion** - Smart number/boolean conversion on paste
-- 🎯 **Append or Replace** - Choose how pasted data is added
-
-## 📦 Installation
+## Installation
 
 ```bash
-npm install @bw-ui/datatable @bw-ui/datatable-clipboard
+npm install @bw-ui/datatable-clipboard
 ```
 
-> ⚠️ **Peer Dependency:** Requires `@bw-ui/datatable` core package
-
-## 🚀 Quick Start
-
-### ES Modules
+## Usage
 
 ```javascript
 import { BWDataTable } from '@bw-ui/datatable';
 import { ClipboardPlugin } from '@bw-ui/datatable-clipboard';
 
-const table = new BWDataTable('#my-table', {
-  data: myData,
-  selectable: true,
-}).use(ClipboardPlugin);
+const table = new BWDataTable('#table', { data }).use(ClipboardPlugin, {
+  copyHeaders: true, // Include headers when copying (default: true)
+  shortcuts: true, // Enable Ctrl+C/V shortcuts (default: true)
+});
 
-// Select rows, then Ctrl+C to copy
-// Ctrl+V to paste from Excel
+// Copy selected rows
+table.copy();
+
+// Copy all visible rows
+table.copyAll();
+
+// Paste from clipboard
+table.paste();
 ```
 
-### CDN
+## Options
 
-```html
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/@bw-ui/datatable/dist/bw-datatable.min.css"
-/>
-<script src="https://unpkg.com/@bw-ui/datatable/dist/bw-datatable.min.js"></script>
-<script src="https://unpkg.com/@bw-ui/datatable-clipboard/dist/clipboard.min.js"></script>
+| Option        | Type      | Default | Description                    |
+| ------------- | --------- | ------- | ------------------------------ |
+| `copyHeaders` | `boolean` | `true`  | Include column headers in copy |
+| `shortcuts`   | `boolean` | `true`  | Enable keyboard shortcuts      |
 
-<script>
-  const table = new BWDataTable('#my-table', {
-    data: myData,
-    selectable: true,
-  }).use(BWClipboard);
-
-  // Ctrl+C to copy, Ctrl+V to paste
-</script>
-```
-
-## ⚙️ Options
-
-```javascript
-.use(ClipboardPlugin, {
-  shortcuts: true,        // Enable Ctrl+C, Ctrl+V
-  copyHeaders: false,     // Include headers when copying
-  pasteMode: 'append',    // 'append' | 'replace'
-})
-```
-
-### Options Reference
-
-| Option        | Type      | Default    | Description                                         |
-| ------------- | --------- | ---------- | --------------------------------------------------- |
-| `shortcuts`   | `boolean` | `true`     | Enable keyboard shortcuts                           |
-| `copyHeaders` | `boolean` | `false`    | Include column headers when copying                 |
-| `pasteMode`   | `string`  | `'append'` | `'append'` adds rows, `'replace'` replaces selected |
-
-## ⌨️ Keyboard Shortcuts
+## Keyboard Shortcuts
 
 | Shortcut           | Action               |
 | ------------------ | -------------------- |
 | `Ctrl+C` / `Cmd+C` | Copy selected rows   |
-| `Ctrl+V` / `Cmd+V` | Paste clipboard data |
+| `Ctrl+V` / `Cmd+V` | Paste from clipboard |
 
-## 📖 Examples
+## API
 
-### Basic Copy/Paste
-
-```javascript
-const table = new BWDataTable('#table', {
-  data: myData,
-  selectable: true,
-}).use(ClipboardPlugin);
-
-// Select rows with checkboxes
-// Press Ctrl+C to copy
-// Paste in Excel or another table
-```
-
-### Programmatic Copy
-
-```javascript
-// Select rows first
-table.selectAll();
-
-// Copy to clipboard
-table.copy().then((success) => {
-  if (success) {
-    console.log('Copied!');
-  }
-});
-```
-
-### Programmatic Paste
-
-```javascript
-// Paste from clipboard
-table.paste().then((success) => {
-  if (success) {
-    console.log('Pasted!');
-  }
-});
-```
-
-### Copy with Headers
-
-```javascript
-.use(ClipboardPlugin, {
-  copyHeaders: true,
-})
-
-// Copied data includes header row:
-// Id    Name    Email    Role
-// 1     John    john@example.com    Admin
-```
-
-### Replace Mode
-
-```javascript
-.use(ClipboardPlugin, {
-  pasteMode: 'replace',
-})
-
-// When pasting:
-// - Selected rows are removed
-// - Pasted rows take their place
-```
-
-### Clipboard Events
-
-```javascript
-table.on('clipboard:copy', ({ rowCount, content }) => {
-  console.log(`Copied ${rowCount} rows`);
-});
-
-table.on('clipboard:before-paste', ({ parsedRows, columns }) => {
-  console.log(`About to paste ${parsedRows.length} rows`);
-  // Return false to cancel
-});
-
-table.on('clipboard:paste', ({ rowCount, rows, mode }) => {
-  console.log(`Pasted ${rowCount} rows (${mode} mode)`);
-});
-```
-
-### Copy/Paste Buttons
-
-```html
-<button onclick="table.copy()">📋 Copy</button>
-<button onclick="table.paste()">📥 Paste</button>
-```
-
-## 📖 API Methods
+### Methods (added to table)
 
 ```javascript
 // Copy selected rows to clipboard
-table.copy(options?);       // Returns: Promise<boolean>
+table.copy(); // Returns: boolean
+table.copy(true); // Copy only selected (default)
+table.copy(false); // Copy all visible rows
+
+// Copy all visible rows
+table.copyAll(); // Returns: boolean
 
 // Paste from clipboard
-table.paste(options?);      // Returns: Promise<boolean>
+table.paste(); // Adds rows to table
 ```
 
-### Override Options Per Call
+## Events
 
 ```javascript
-// Copy with headers just this time
-table.copy({ copyHeaders: true });
+// After copy
+table.on('clipboard:copy', ({ count, text }) => {
+  console.log(`Copied ${count} rows`);
+  // text contains tab-separated data
+});
 
-// Paste in replace mode just this time
-table.paste({ pasteMode: 'replace' });
+// After paste
+table.on('clipboard:paste', ({ rows, count, text }) => {
+  console.log(`Pasted ${count} rows`);
+  // rows contains parsed row objects
+});
 ```
 
-## 📊 Data Format
+## Copy Format
 
-### Copied Data (Tab-separated)
+Data is copied as tab-separated values (TSV):
 
 ```
-1	John Doe	john@example.com	Admin
-2	Jane Smith	jane@example.com	Editor
-3	Bob Wilson	bob@example.com	Viewer
+Name	Email	Salary
+John	john@example.com	50000
+Jane	jane@example.com	60000
 ```
 
-### Pasting from Excel
+This format is compatible with:
 
-1. Select cells in Excel
-2. Copy (Ctrl+C)
-3. Click on table
-4. Paste (Ctrl+V or `table.paste()`)
+- Microsoft Excel
+- Google Sheets
+- Apple Numbers
+- LibreOffice Calc
+- Any TSV-compatible application
 
-**Note:** Columns are mapped by position, not by header name. Ensure your Excel columns match the table column order.
+## Paste Behavior
 
-## 🔄 Type Conversion
+When pasting:
 
-When pasting, the plugin automatically converts values based on column type:
+1. **Header Detection** - If first row matches column headers, it's skipped
+2. **Type Conversion** - Numbers and booleans are automatically converted
+3. **ID Generation** - New rows get unique IDs (`pasted_<timestamp>_<index>`)
+4. **Append Mode** - Pasted rows are added to existing data
 
-| Column Type | Conversion                      |
-| ----------- | ------------------------------- |
-| `number`    | `"123"` → `123`                 |
-| `boolean`   | `"true"`, `"1"`, `"✓"` → `true` |
-| `string`    | No conversion                   |
+### Supported Paste Sources
 
-## 🔌 Combining with Other Plugins
+- Excel (Ctrl+C from cells)
+- Google Sheets
+- TSV/CSV text
+- Any tab-separated or newline-separated data
+
+## Example: Copy/Paste Workflow
 
 ```javascript
+const table = new BWDataTable('#table', { data }).use(ClipboardPlugin);
+
+// 1. User selects rows with checkboxes
+// 2. User presses Ctrl+C
+// 3. Data is copied to clipboard
+
+table.on('clipboard:copy', ({ count }) => {
+  showToast(`Copied ${count} rows`);
+});
+
+// 4. User opens Excel, pastes with Ctrl+V
+// 5. User makes changes in Excel
+// 6. User copies from Excel, comes back to table
+// 7. User presses Ctrl+V
+
+table.on('clipboard:paste', ({ count }) => {
+  showToast(`Added ${count} rows`);
+  table.scrollToBottom();
+});
+```
+
+## Example: Export Button
+
+```javascript
+const table = new BWDataTable('#table', { data }).use(ClipboardPlugin);
+
+document.getElementById('copyAll').addEventListener('click', () => {
+  table.copyAll();
+});
+
+document.getElementById('copySelected').addEventListener('click', () => {
+  const selected = table.getSelected();
+  if (selected.length === 0) {
+    alert('Select some rows first');
+    return;
+  }
+  table.copy();
+});
+```
+
+## TypeScript
+
+```typescript
 import { BWDataTable } from '@bw-ui/datatable';
-import { ClipboardPlugin } from '@bw-ui/datatable-clipboard';
-import { HistoryPlugin } from '@bw-ui/datatable-history';
-import { ExportPlugin } from '@bw-ui/datatable-export';
+import {
+  ClipboardPlugin,
+  ClipboardPluginOptions,
+} from '@bw-ui/datatable-clipboard';
 
-const table = new BWDataTable('#table', { data: myData, selectable: true })
-  .use(ClipboardPlugin) // Copy/Paste
-  .use(HistoryPlugin) // Undo/Redo (undo paste!)
-  .use(ExportPlugin); // Export CSV/JSON
+const options: ClipboardPluginOptions = {
+  copyHeaders: true,
+  shortcuts: true,
+};
 
-// Paste data, then undo if needed
-table.paste();
-table.undo(); // Reverts paste
+const table = new BWDataTable('#table', { data }).use(ClipboardPlugin, options);
+
+table.on('clipboard:copy', ({ count, text }) => {
+  // Typed event data
+});
 ```
 
-## 📁 What's Included
+## Browser Permissions
 
-```
-dist/
-├── clipboard.min.js       # IIFE build (for <script>)
-└── clipboard.esm.min.js   # ESM build (for import)
-```
+The Clipboard API requires:
 
-## 🔗 Related Packages
+- **HTTPS** or localhost
+- **User interaction** (click, keyboard)
+- Browser permission (usually auto-granted)
 
-| Package                                                                                | Description     |
-| -------------------------------------------------------------------------------------- | --------------- |
-| [@bw-ui/datatable](https://www.npmjs.com/package/@bw-ui/datatable)                     | Core (required) |
-| [@bw-ui/datatable-history](https://www.npmjs.com/package/@bw-ui/datatable-history)     | Undo/Redo       |
-| [@bw-ui/datatable-export](https://www.npmjs.com/package/@bw-ui/datatable-export)       | Export JSON/CSV |
-| [@bw-ui/datatable-url-state](https://www.npmjs.com/package/@bw-ui/datatable-url-state) | URL sync        |
+If clipboard access fails, check browser console for permission errors.
 
-## 📄 License
+## License
 
-MIT © [BW UI](https://github.com/bw-ui)
-
-## 🐛 Issues
-
-Found a bug? [Report it here](https://github.com/bw-ui/bw-datatable/issues)
+MIT © [BW UI](https://github.com/AshwinPavanKadha/bw-ui)

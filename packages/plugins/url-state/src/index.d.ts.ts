@@ -1,72 +1,161 @@
 /**
- * @bw-ui/datatable-url-state - TypeScript Definitions
+ * BWDataTable URL State Plugin - TypeScript Definitions
+ * @bw-ui/datatable-url-state
  */
 
-import { Plugin, PluginAPI } from '@bw-ui/datatable';
+import { PluginAPI, Plugin, PluginInstance } from '@bw-ui/datatable';
 
+/**
+ * URL State plugin options
+ */
 export interface UrlStatePluginOptions {
-  /** Prefix for URL params (e.g., 'table_' → ?table_page=2) */
+  /**
+   * Persist state to URL on changes
+   * @default true
+   */
+  persist?: boolean;
+
+  /**
+   * Restore state from URL on init
+   * @default true
+   */
+  restore?: boolean;
+
+  /**
+   * Prefix for URL parameters
+   * @default 'dt_'
+   */
   prefix?: string;
-  /** Use pushState (true) or replaceState (false) */
-  pushState?: boolean;
-  /** Listen for browser back/forward navigation */
-  watchPopState?: boolean;
-  /** Sync current page to URL */
-  syncPage?: boolean;
-  /** Sync sort column and direction to URL */
-  syncSort?: boolean;
-  /** Sync column filters to URL */
-  syncFilter?: boolean;
-  /** Sync global search to URL */
-  syncSearch?: boolean;
+
+  /**
+   * Use hash (#) instead of query string (?)
+   * @default false
+   */
+  useHash?: boolean;
+
+  /**
+   * Debounce delay for URL updates (ms)
+   * @default 300
+   */
+  debounce?: number;
+
+  /**
+   * State properties to sync
+   * @default ['sort', 'filter', 'page']
+   */
+  syncState?: ('sort' | 'filter' | 'page' | 'selected')[];
 }
 
-export interface UrlStateParams {
+/**
+ * URL state object
+ */
+export interface UrlState {
+  /** Sort column */
+  sortColumn?: string;
+
+  /** Sort direction */
+  sortDirection?: 'asc' | 'desc';
+
+  /** Filter/search term */
+  filter?: string;
+
+  /** Current page (if paginated) */
   page?: number;
-  sort?: string;
-  search?: string;
-  [key: `filter_${string}`]: string;
+
+  /** Selected row IDs */
+  selected?: string[];
 }
 
+/**
+ * URL state change event data
+ */
 export interface UrlStateChangeEvent {
-  params: Record<string, string>;
+  /** Previous state */
+  previous: UrlState;
+
+  /** Current state */
+  current: UrlState;
+
+  /** Full URL */
+  url: string;
 }
 
-export interface UrlStatePluginInstance {
-  /** Get current state as URL params object */
-  getUrlState: () => UrlStateParams;
-  /** Set state from params object */
-  setUrlState: (params: UrlStateParams) => void;
-  /** Clear all URL state */
-  clearUrlState: () => void;
-  /** Manually sync from URL to table state */
-  syncFromUrl: () => void;
-  /** Manually sync from table state to URL */
-  syncToUrl: () => void;
-  /** Cleanup */
-  destroy: () => void;
-}
-
-export interface UrlStatePlugin extends Plugin {
+/**
+ * URL State plugin instance
+ */
+export interface UrlStatePluginInstance extends PluginInstance {
   name: 'url-state';
-  init: (api: PluginAPI) => UrlStatePluginInstance;
+
+  /**
+   * Get current URL state
+   */
+  getState(): UrlState;
+
+  /**
+   * Set state and update URL
+   * @param state - State to set
+   */
+  setState(state: Partial<UrlState>): void;
+
+  /**
+   * Clear all URL state params
+   */
+  clearState(): void;
+
+  /**
+   * Get shareable URL with current state
+   */
+  getShareableUrl(): string;
+
+  /**
+   * Cleanup plugin
+   */
+  destroy(): void;
 }
 
-export declare const UrlStatePlugin: UrlStatePlugin;
+/**
+ * URL State Plugin
+ *
+ * Syncs table state with URL for shareable links and browser navigation.
+ *
+ * @example
+ * ```typescript
+ * import { BWDataTable } from '@bw-ui/datatable';
+ * import { UrlStatePlugin } from '@bw-ui/datatable-url-state';
+ *
+ * const table = new BWDataTable('#table', { data })
+ *   .use(UrlStatePlugin, {
+ *     persist: true,
+ *     restore: true,
+ *     prefix: 'dt_',
+ *   });
+ *
+ * // URL automatically updates when:
+ * // - Sort changes: ?dt_sort=name&dt_dir=asc
+ * // - Filter changes: ?dt_filter=john
+ *
+ * // Get shareable link
+ * const url = table.getShareableUrl?.();
+ * ```
+ */
+export declare const UrlStatePlugin: Plugin & {
+  name: 'url-state';
+  init(api: PluginAPI): UrlStatePluginInstance;
+};
+
 export default UrlStatePlugin;
 
-// Extend BWDataTable interface
+/**
+ * Extended table interface with URL State plugin methods
+ */
 declare module '@bw-ui/datatable' {
   interface BWDataTable {
-    /** Get current state as URL params object */
-    getUrlState(): UrlStateParams;
-    /** Set state from params object */
-    setUrlState(params: UrlStateParams): void;
-    /** Clear all URL state */
-    clearUrlState(): void;
-    /** Manually sync from URL to table state */
-    syncUrlToState(): void;
-    /** Manually sync from table state to URL */
-    syncStateToUrl(): void;
+    /** Get shareable URL with current state */
+    getShareableUrl?(): string;
+  }
+
+  interface BWDataTableEvents {
+    'urlstate:change': UrlStateChangeEvent;
+    'urlstate:restore': UrlState;
   }
 }

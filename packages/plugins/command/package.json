@@ -1,15 +1,15 @@
 {
-  "name": "@bw-ui/datatable-history",
-  "version": "1.0.1",
-  "description": "Undo/Redo plugin for @bw-ui/datatable",
+  "name": "@bw-ui/datatable-command",
+  "version": "1.0.0",
+  "description": "Command palette plugin for @bw-ui/datatable - Cmd+K quick actions",
   "type": "module",
-  "main": "dist/history.min.js",
-  "module": "dist/history.esm.min.js",
+  "main": "dist/command.min.js",
+  "module": "dist/command.esm.min.js",
   "types": "src/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/history.esm.min.js",
-      "require": "./dist/history.min.js"
+      "import": "./dist/command.esm.min.js",
+      "require": "./dist/command.min.js"
     }
   },
   "files": [
@@ -24,16 +24,18 @@
     "bw-ui",
     "datatable",
     "plugin",
-    "undo",
-    "redo",
-    "history"
+    "command",
+    "palette",
+    "cmd-k",
+    "keyboard",
+    "shortcuts"
   ],
   "author": "Black & White UI Engineering",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bw-ui/datatable.git",
-    "directory": "packages/plugins/history"
+    "url": "https://github.com/bw-ui/bw-datatable.git",
+    "directory": "packages/plugins/command"
   },
   "peerDependencies": {
     "@bw-ui/datatable": "^1.0.0"

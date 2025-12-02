@@ -1,11 +1,11 @@
 {
   "name": "@bw-ui/datatable-export",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Export plugin for @bw-ui/datatable - JSON, CSV, Clipboard",
   "type": "module",
   "main": "dist/export.min.js",
   "module": "dist/export.esm.min.js",
-  "types": "types.d.ts",
+  "types": "src/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/export.esm.min.js",
@@ -33,17 +33,13 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bw-ui/bw-datatable.git",
-    "directory": "packages/core"
-  },
-  "homepage": "https://bw-ui.dev/bw-datatable",
-  "bugs": {
-    "url": "https://github.com/bw-ui/bw-datatable/issues"
+    "url": "https://github.com/bw-ui/datatable.git",
+    "directory": "packages/plugins/export"
   },
   "peerDependencies": {
     "@bw-ui/datatable": "^1.0.0"
   },
   "devDependencies": {
-    "esbuild": "^0.20.0"
+    "esbuild": "^0.20.2"
   }
 }

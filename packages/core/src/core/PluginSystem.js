@@ -56,11 +56,11 @@ export class PluginSystem {
   }
 
   /**
-   * Register and init a plugin
+   * Register and install a plugin
    *
    * @param {Object} plugin - Plugin definition
    * @param {string} plugin.name - Unique plugin name
-   * @param {Function} plugin.init - init function, receives API, returns instance
+   * @param {Function} plugin.init - Init function, receives API, returns instance
    * @param {Function} [plugin.destroy] - Cleanup function, receives instance
    * @param {Array} [plugin.dependencies] - Required plugin names
    * @param {Object} options - Plugin-specific options
@@ -91,7 +91,7 @@ export class PluginSystem {
       }
     }
 
-    // init plugin with API + options
+    // Install plugin with API + options
     const instance = init({
       ...this.#api,
       options,

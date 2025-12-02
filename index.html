@@ -824,6 +824,32 @@
       .delay-3 {
         animation-delay: 0.3s;
       }
+      .demo-hints {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 12px 16px;
+        background: var(--accent-soft);
+        border-top: 1px solid var(--border-light);
+        font-size: 12px;
+      }
+
+      .demo-hint {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text-secondary);
+      }
+
+      .demo-hint kbd {
+        background: white;
+        border: 1px solid var(--border-medium);
+        border-radius: 4px;
+        padding: 2px 6px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--text-primary);
+      }
     </style>
   </head>
   <body>
@@ -993,23 +1019,137 @@
         </div>
         <div class="demo-card">
           <div class="demo-header">
-            <div class="demo-title">Employee Directory</div>
+            <div class="demo-title">
+              Employee Directory
+              <span
+                id="demo-stats"
+                style="
+                  font-weight: 400;
+                  font-size: 13px;
+                  color: var(--text-tertiary);
+                  margin-left: 12px;
+                "
+              ></span>
+            </div>
             <div class="demo-actions">
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 16px;
+                  font-size: 12px;
+                  color: var(--text-tertiary);
+                "
+              >
+                <span>💡 Double-click any cell to edit</span>
+                <span>•</span>
+              </div>
+              <!-- Data size buttons -->
+              <button class="demo-btn" onclick="loadData(100)">100 rows</button>
+              <button class="demo-btn" onclick="loadData(1000)">1K rows</button>
+              <button class="demo-btn" onclick="loadData(10000)">
+                10K rows
+              </button>
+              <button class="demo-btn" onclick="loadData(100000)">
+                100K rows
+              </button>
+              <button class="demo-btn" onclick="loadData(500000)">
+                500K rows ⚠️
+              </button>
+
+              <span
+                style="
+                  width: 1px;
+                  height: 24px;
+                  background: var(--border-light);
+                  margin: 0 8px;
+                "
+              ></span>
+
+              <!-- Action buttons -->
               <button class="demo-btn" onclick="table.undo()">↩ Undo</button>
               <button class="demo-btn" onclick="table.redo()">↪ Redo</button>
               <button class="demo-btn" onclick="table.exportCSV()">
-                📊 Export CSV
+                📊 CSV
               </button>
-              <button
-                class="demo-btn"
-                onclick="table.copyToClipboard().then(() => alert('Copied!'))"
-              >
-                📋 Copy
+              <button class="demo-btn" onclick="table.exportJSON()">
+                📄 JSON
+              </button>
+              <button class="demo-btn" onclick="table.copy()">📋 Copy</button>
+              <button class="demo-btn" onclick="table.selectAll()">
+                ☑ Select All
+              </button>
+              <button class="demo-btn" onclick="table.clearSelection()">
+                ☐ Clear
+              </button>
+              <button class="demo-btn" onclick="table.openCommand()">
+                ⌘K Command
               </button>
             </div>
           </div>
           <div class="demo-body">
             <div id="demo-table"></div>
+          </div>
+          <div class="demo-hints">
+            <span class="demo-hint"><kbd>Double-click</kbd> Edit cell</span>
+            <span class="demo-hint"><kbd>⌘K</kbd> Command palette</span>
+            <span class="demo-hint"><kbd>Ctrl+Z</kbd> Undo</span>
+            <span class="demo-hint"><kbd>Ctrl+C</kbd> Copy rows</span>
+            <span class="demo-hint"><kbd>Ctrl+V</kbd> Paste rows</span>
+            <span class="demo-hint"><kbd>↑↓←→</kbd> Navigate</span>
+            <span class="demo-hint"><kbd>Enter</kbd> Edit / Save</span>
+            <span class="demo-hint"><kbd>Esc</kbd> Cancel</span>
+          </div>
+        </div>
+        <div class="demo-card" style="margin-top: 24px">
+          <div
+            class="demo-header"
+            style="cursor: pointer"
+            onclick="toggleCode()"
+          >
+            <div class="demo-title">
+              <span id="code-toggle-icon">▶</span> View Code
+            </div>
+            <div style="font-size: 12px; color: var(--text-tertiary)">
+              Click to expand
+            </div>
+          </div>
+          <div class="demo-code-body" id="demo-code" style="display: none">
+            <div class="plugin-code" style="margin: 0; border-radius: 0">
+              <pre><span class="comment">// Initialize BWDataTable with all plugins</span>
+<span class="keyword">const</span> table = <span class="keyword">new</span> <span class="function">BWDataTable</span>(<span class="string">'#demo-table'</span>, {
+  data: employees,
+  columns: [
+    { id: <span class="string">'id'</span>, header: <span class="string">'ID'</span>, width: <span class="string">'70px'</span> },
+    { id: <span class="string">'name'</span>, header: <span class="string">'Name'</span>, editable: <span class="keyword">true</span> },
+    { id: <span class="string">'email'</span>, header: <span class="string">'Email'</span>, editable: <span class="keyword">true</span> },
+    { id: <span class="string">'department'</span>, header: <span class="string">'Department'</span>, editable: <span class="keyword">true</span> },
+    { id: <span class="string">'role'</span>, header: <span class="string">'Role'</span>, editable: <span class="keyword">true</span> },
+    { id: <span class="string">'salary'</span>, header: <span class="string">'Salary'</span>, type: <span class="string">'number'</span>, editable: <span class="keyword">true</span>,
+      render: (value) => <span class="string">`$${value.toLocaleString()}`</span> },
+    { id: <span class="string">'status'</span>, header: <span class="string">'Status'</span>, type: <span class="string">'boolean'</span> },
+  ],
+  editable: <span class="keyword">true</span>,       <span class="comment">// Enable cell editing</span>
+  selectable: <span class="keyword">true</span>,     <span class="comment">// Enable row selection</span>
+  searchable: <span class="keyword">true</span>,     <span class="comment">// Enable search box</span>
+  toolbar: <span class="keyword">true</span>,        <span class="comment">// Show toolbar</span>
+  rowHeight: <span class="property">44</span>,        <span class="comment">// Row height for virtual scroll</span>
+})
+  .<span class="function">use</span>(<span class="property">HistoryPlugin</span>)    <span class="comment">// Undo/Redo (Ctrl+Z, Ctrl+Y)</span>
+  .<span class="function">use</span>(<span class="property">ExportPlugin</span>)    <span class="comment">// Export CSV, JSON</span>
+  .<span class="function">use</span>(<span class="property">ClipboardPlugin</span>) <span class="comment">// Copy/Paste (Ctrl+C, Ctrl+V)</span>
+  .<span class="function">use</span>(<span class="property">CommandPlugin</span>)   <span class="comment">// Command palette (⌘K)</span>
+  .<span class="function">use</span>(<span class="property">UrlStatePlugin</span>); <span class="comment">// Shareable URL state</span>
+
+<span class="comment">// Listen to events</span>
+table.<span class="function">on</span>(<span class="string">'cell:edit'</span>, ({ row, column, value }) => {
+  console.<span class="function">log</span>(<span class="string">'Cell edited:'</span>, row, column, value);
+});
+
+table.<span class="function">on</span>(<span class="string">'selection:change'</span>, ({ selected }) => {
+  console.<span class="function">log</span>(<span class="string">'Selected rows:'</span>, selected.length);
+});</pre>
+            </div>
           </div>
         </div>
       </div>
@@ -1260,107 +1400,98 @@ table.<span class="function">use</span>(<span class="property">VirtualPlugin</sp
     <script src="https://unpkg.com/@bw-ui/datatable/dist/bw-datatable.min.js"></script>
     <script src="https://unpkg.com/@bw-ui/datatable-history/dist/history.min.js"></script>
     <script src="https://unpkg.com/@bw-ui/datatable-export/dist/export.min.js"></script>
+    <script src="https://unpkg.com/@bw-ui/datatable-clipboard/dist/clipboard.min.js"></script>
+    <script src="https://unpkg.com/@bw-ui/datatable-command/dist/command.min.js"></script>
+    <script src="https://unpkg.com/@bw-ui/datatable-url-state/dist/url-state.min.js"></script>
 
     <script>
-      // Demo data
-      const employees = [
-        {
-          id: 1,
-          name: 'Emma Thompson',
-          email: 'emma@company.com',
-          department: 'Engineering',
-          role: 'Senior Developer',
-          salary: 125000,
-          status: true,
-        },
-        {
-          id: 2,
-          name: 'James Wilson',
-          email: 'james@company.com',
-          department: 'Design',
-          role: 'Lead Designer',
-          salary: 98000,
-          status: true,
-        },
-        {
-          id: 3,
-          name: 'Sofia Garcia',
-          email: 'sofia@company.com',
-          department: 'Marketing',
-          role: 'Marketing Manager',
-          salary: 87000,
-          status: true,
-        },
-        {
-          id: 4,
-          name: 'Liam Anderson',
-          email: 'liam@company.com',
-          department: 'Engineering',
-          role: 'Developer',
-          salary: 95000,
-          status: false,
-        },
-        {
-          id: 5,
-          name: 'Olivia Brown',
-          email: 'olivia@company.com',
-          department: 'Sales',
-          role: 'Sales Lead',
-          salary: 92000,
-          status: true,
-        },
-        {
-          id: 6,
-          name: 'Noah Martinez',
-          email: 'noah@company.com',
-          department: 'Engineering',
-          role: 'DevOps Engineer',
-          salary: 115000,
-          status: true,
-        },
-        {
-          id: 7,
-          name: 'Ava Johnson',
-          email: 'ava@company.com',
-          department: 'HR',
-          role: 'HR Manager',
-          salary: 78000,
-          status: true,
-        },
-        {
-          id: 8,
-          name: 'Ethan Davis',
-          email: 'ethan@company.com',
-          department: 'Finance',
-          role: 'Financial Analyst',
-          salary: 85000,
-          status: false,
-        },
-        {
-          id: 9,
-          name: 'Isabella Lee',
-          email: 'isabella@company.com',
-          department: 'Engineering',
-          role: 'QA Engineer',
-          salary: 88000,
-          status: true,
-        },
-        {
-          id: 10,
-          name: 'Mason Taylor',
-          email: 'mason@company.com',
-          department: 'Product',
-          role: 'Product Manager',
-          salary: 110000,
-          status: true,
-        },
-      ];
+      // Generate fake data
+      function generateData(count) {
+        const departments = [
+          'Engineering',
+          'Design',
+          'Marketing',
+          'Sales',
+          'HR',
+          'Finance',
+          'Product',
+          'Operations',
+        ];
+        const roles = [
+          'Manager',
+          'Senior',
+          'Lead',
+          'Junior',
+          'Director',
+          'VP',
+          'Analyst',
+          'Specialist',
+        ];
+        const firstNames = [
+          'Emma',
+          'James',
+          'Sofia',
+          'Liam',
+          'Olivia',
+          'Noah',
+          'Ava',
+          'Ethan',
+          'Isabella',
+          'Mason',
+          'Mia',
+          'Lucas',
+          'Charlotte',
+          'Oliver',
+          'Amelia',
+        ];
+        const lastNames = [
+          'Thompson',
+          'Wilson',
+          'Garcia',
+          'Anderson',
+          'Brown',
+          'Martinez',
+          'Johnson',
+          'Davis',
+          'Lee',
+          'Taylor',
+          'White',
+          'Harris',
+          'Clark',
+          'Lewis',
+        ];
+
+        const data = [];
+        for (let i = 0; i < count; i++) {
+          const firstName =
+            firstNames[Math.floor(Math.random() * firstNames.length)];
+          const lastName =
+            lastNames[Math.floor(Math.random() * lastNames.length)];
+          const dept =
+            departments[Math.floor(Math.random() * departments.length)];
+          data.push({
+            id: i + 1,
+            name: `${firstName} ${lastName}`,
+            email: `${firstName.toLowerCase()}${i}@company.com`,
+            department: dept,
+            role: `${
+              roles[Math.floor(Math.random() * roles.length)]
+            } ${dept.slice(0, 3)}`,
+            salary: Math.floor(Math.random() * 100000) + 50000,
+            status: Math.random() > 0.2,
+          });
+        }
+        return data;
+      }
+
+      // Initial data
+      let employees = generateData(100);
 
       // Initialize table
-      const table = new BWDataTable('#demo-table', {
+      let table = new BWDataTable('#demo-table', {
         data: employees,
         columns: [
-          { id: 'id', header: 'ID', width: '60px' },
+          { id: 'id', header: 'ID', width: '70px' },
           { id: 'name', header: 'Name', editable: true },
           { id: 'email', header: 'Email', editable: true },
           { id: 'department', header: 'Department', editable: true },
@@ -1384,32 +1515,59 @@ table.<span class="function">use</span>(<span class="property">VirtualPlugin</sp
         ],
         editable: true,
         selectable: true,
-        pageSize: 5,
         searchable: true,
+        rowHeight: 44,
       })
         .use(BWHistory)
-        .use(BWExport);
+        .use(BWExport)
+        .use(BWClipboard)
+        .use(BWCommand);
 
-      // Install tab switching
-      function showInstall(type) {
-        document
-          .querySelectorAll('.install-tab')
-          .forEach((t) => t.classList.remove('active'));
-        document
-          .querySelectorAll('.install-code')
-          .forEach((c) => (c.style.display = 'none'));
+      updateStats();
 
-        event.target.classList.add('active');
-        document.getElementById('install-' + type).style.display = 'flex';
+      // Load data function
+      function loadData(count) {
+        const btn = event.target;
+        btn.textContent = 'Loading...';
+        btn.disabled = true;
+
+        // Use setTimeout to let UI update
+        setTimeout(() => {
+          const start = performance.now();
+          employees = generateData(count);
+          table.setData(employees);
+          const time = Math.round(performance.now() - start);
+
+          btn.textContent = btn.textContent.includes('⚠️')
+            ? `${count / 1000}K rows ⚠️`
+            : count >= 1000
+            ? `${count / 1000}K rows`
+            : `${count} rows`;
+          btn.disabled = false;
+
+          updateStats(time);
+        }, 10);
       }
 
-      // Copy install command
-      // Copy install command
-      function copyInstall(text, btn) {
-        navigator.clipboard.writeText(text).then(() => {
-          btn.textContent = 'Copied!';
-          setTimeout(() => (btn.textContent = 'Copy'), 2000);
-        });
+      function updateStats(loadTime) {
+        const stats = document.getElementById('demo-stats');
+        const state = table.getState ? table.getState() : {};
+        const rowCount = state.totalRows || employees.length;
+        stats.textContent = `${rowCount.toLocaleString()} rows${
+          loadTime ? ` • Loaded in ${loadTime}ms` : ''
+        }`;
+      }
+      // Toggle code block
+      function toggleCode() {
+        const code = document.getElementById('demo-code');
+        const icon = document.getElementById('code-toggle-icon');
+        if (code.style.display === 'none') {
+          code.style.display = 'block';
+          icon.textContent = '▼';
+        } else {
+          code.style.display = 'none';
+          icon.textContent = '▶';
+        }
       }
     </script>
   </body>

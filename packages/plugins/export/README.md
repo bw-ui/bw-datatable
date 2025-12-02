@@ -1,265 +1,186 @@
 # @bw-ui/datatable-export
 
-Export plugin for BW DataTable - Download data as JSON, CSV, or copy to clipboard.
+CSV and JSON export plugin for BWDataTable.
 
-![Version](https://img.shields.io/npm/v/@bw-ui/datatable-export)
-![License](https://img.shields.io/npm/l/@bw-ui/datatable-export)
-![Size](https://img.shields.io/bundlephobia/minzip/@bw-ui/datatable-export)
+## Features
 
-[Live Demo](https://bw-ui.github.io/bw-datatable) • [Documentation](https://www.npmjs.com/package/@bw-ui/datatable-export) • [Core Package](https://www.npmjs.com/package/@bw-ui/datatable)
+- 📄 **CSV Export** - Download as comma-separated values
+- 📋 **JSON Export** - Download as JSON array
+- 🎯 **Selective Export** - Export all or selected rows only
+- 📝 **Custom Filenames** - Configurable output filename
+- ⚡ **Instant Download** - Client-side file generation
 
-## ✨ Features
-
-- 📄 **JSON Export** - Download as formatted JSON file
-- 📊 **CSV Export** - Excel-compatible CSV download
-- 📋 **Clipboard** - Copy to clipboard for pasting
-- ✅ **Selected Only** - Export only selected rows
-- 👁️ **Visible Only** - Respect hidden columns
-- 🎛️ **Customizable** - Custom filename, delimiters
-
-## 📦 Installation
+## Installation
 
 ```bash
-npm install @bw-ui/datatable @bw-ui/datatable-export
+npm install @bw-ui/datatable-export
 ```
 
-> ⚠️ **Peer Dependency:** Requires `@bw-ui/datatable` core package
-
-## 🚀 Quick Start
-
-### ES Modules
+## Usage
 
 ```javascript
 import { BWDataTable } from '@bw-ui/datatable';
 import { ExportPlugin } from '@bw-ui/datatable-export';
 
-const table = new BWDataTable('#my-table', { data: myData }).use(ExportPlugin);
+const table = new BWDataTable('#table', { data }).use(ExportPlugin, {
+  filename: 'my-data', // Default filename (default: 'export')
+  includeHeaders: true, // Include headers in CSV (default: true)
+});
 
-// Export data
-table.exportJSON(); // Download .json file
-table.exportCSV(); // Download .csv file
-table.copyToClipboard(); // Copy to clipboard
-```
-
-### CDN
-
-```html
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/@bw-ui/datatable/dist/bw-datatable.min.css"
-/>
-<script src="https://unpkg.com/@bw-ui/datatable/dist/bw-datatable.min.js"></script>
-<script src="https://unpkg.com/@bw-ui/datatable-export/dist/export.min.js"></script>
-
-<script>
-  const table = new BWDataTable('#my-table', { data: myData }).use(BWExport);
-
-  // Add export buttons
-  document.getElementById('export-csv').onclick = () => table.exportCSV();
-  document.getElementById('export-json').onclick = () => table.exportJSON();
-</script>
-```
-
-## ⚙️ Options
-
-```javascript
-.use(ExportPlugin, {
-  filename: 'data',        // Base filename (without extension)
-  includeHeaders: true,    // Include column headers
-  selectedOnly: false,     // Export only selected rows
-  visibleOnly: true,       // Export only visible columns
-  csvDelimiter: ',',       // CSV field delimiter
-  csvQuote: '"',           // CSV quote character
-})
-```
-
-### Options Reference
-
-| Option           | Type      | Default  | Description                      |
-| ---------------- | --------- | -------- | -------------------------------- |
-| `filename`       | `string`  | `'data'` | Base filename for downloads      |
-| `includeHeaders` | `boolean` | `true`   | Include column headers in export |
-| `selectedOnly`   | `boolean` | `false`  | Export only selected rows        |
-| `visibleOnly`    | `boolean` | `true`   | Export only visible columns      |
-| `csvDelimiter`   | `string`  | `','`    | CSV field delimiter              |
-| `csvQuote`       | `string`  | `'"'`    | CSV quote character              |
-
-## 📖 Examples
-
-### Basic Export
-
-```javascript
-const table = new BWDataTable('#table', { data: myData }).use(ExportPlugin);
-
-// Download as JSON
-table.exportJSON();
-
-// Download as CSV
+// Export all data to CSV
 table.exportCSV();
 
-// Copy to clipboard
-table.copyToClipboard();
+// Export with custom filename
+table.exportCSV('users-report');
+
+// Export only selected rows
+table.exportCSV('selected-users', true);
+
+// Export to JSON
+table.exportJSON('data-backup');
+
+// Export selected to JSON
+table.exportJSON('selected', true);
 ```
 
-### Export Selected Rows Only
+## Options
+
+| Option           | Type      | Default    | Description                          |
+| ---------------- | --------- | ---------- | ------------------------------------ |
+| `filename`       | `string`  | `'export'` | Default filename (without extension) |
+| `includeHeaders` | `boolean` | `true`     | Include column headers in CSV        |
+
+## API
+
+### Methods (added to table)
 
 ```javascript
-// Select some rows first, then:
-table.exportCSV({ selectedOnly: true });
+// Export to CSV
+table.exportCSV(); // export.csv
+table.exportCSV('users'); // users.csv
+table.exportCSV('users', true); // Selected rows only
+table.exportCSV('users', false); // All rows
+
+// Export to JSON
+table.exportJSON(); // export.json
+table.exportJSON('data'); // data.json
+table.exportJSON('data', true); // Selected rows only
+table.exportJSON('data', false); // All rows
 ```
 
-### Custom Filename
+## Events
 
 ```javascript
-table.exportCSV({ filename: 'users-export-2024' });
-// Downloads: users-export-2024.csv
-```
-
-### Include Headers
-
-```javascript
-table.exportCSV({ includeHeaders: true });
-// CSV includes header row:
-// Id,Name,Email,Role
-// 1,John Doe,john@example.com,Admin
-```
-
-### European CSV (Semicolon Delimiter)
-
-```javascript
-table.exportCSV({
-  csvDelimiter: ';',
-  filename: 'export',
-});
-// Output: Id;Name;Email;Role
-```
-
-### Export Events
-
-```javascript
-table.on('export:before', ({ format, rows, columns }) => {
-  console.log(`Exporting ${rows.length} rows as ${format}`);
-  // Return false to cancel
-});
-
-table.on('export:after', ({ format, filename, rowCount }) => {
-  console.log(`Exported ${rowCount} rows to ${filename}`);
+// After export complete
+table.on('export:complete', ({ format, filename, count }) => {
+  console.log(`Exported ${count} rows to ${filename}.${format}`);
 });
 ```
 
-### Get Data for Custom Processing
+## Output Formats
 
-```javascript
-const { rows, columns, data } = table.getExportData();
+### CSV Format
 
-// Custom processing
-const customFormat = data.map((row) => ({
-  fullName: row.name,
-  contact: row.email,
-}));
+```csv
+Id,Name,Email,Salary
+1,John,john@example.com,50000
+2,Jane,jane@example.com,60000
 ```
 
-### Export Buttons
+- Comma-separated values
+- First row contains headers (if enabled)
+- Values with commas/quotes are properly escaped
+- Compatible with Excel, Google Sheets, etc.
 
-```html
-<button onclick="table.exportJSON()">📄 Export JSON</button>
-<button onclick="table.exportCSV()">📊 Export CSV</button>
-<button onclick="table.copyToClipboard().then(() => alert('Copied!'))">
-  📋 Copy
-</button>
-```
-
-## 📖 API Methods
-
-```javascript
-// Export as JSON file
-table.exportJSON(options?);           // Returns: boolean (success)
-
-// Export as CSV file
-table.exportCSV(options?);            // Returns: boolean (success)
-
-// Copy to clipboard
-table.copyToClipboard(options?);      // Returns: Promise<boolean>
-
-// Get export data object
-table.getExportData(options?);        // Returns: { rows, columns, data }
-```
-
-### Override Options Per Call
-
-```javascript
-// Override defaults for single call
-table.exportCSV({
-  filename: 'special-export',
-  selectedOnly: true,
-  includeHeaders: false,
-});
-```
-
-## 📄 Output Formats
-
-### JSON
+### JSON Format
 
 ```json
 [
-  { "id": 1, "name": "John Doe", "email": "john@example.com" },
-  { "id": 2, "name": "Jane Smith", "email": "jane@example.com" }
+  {
+    "id": 1,
+    "name": "John",
+    "email": "john@example.com",
+    "salary": 50000
+  },
+  {
+    "id": 2,
+    "name": "Jane",
+    "email": "jane@example.com",
+    "salary": 60000
+  }
 ]
 ```
 
-### CSV
+- Array of objects
+- Pretty-printed for readability
+- All data types preserved
 
-```csv
-Id,Name,Email,Role
-1,John Doe,john@example.com,Admin
-2,Jane Smith,jane@example.com,Editor
+## Example: Export Buttons
+
+```html
+<button id="exportCSV">Export CSV</button>
+<button id="exportJSON">Export JSON</button>
+<button id="exportSelected">Export Selected</button>
 ```
-
-### Clipboard (Tab-separated)
-
-```
-Id	Name	Email	Role
-1	John Doe	john@example.com	Admin
-2	Jane Smith	jane@example.com	Editor
-```
-
-## 🔌 Combining with Other Plugins
 
 ```javascript
+const table = new BWDataTable('#table', { data }).use(ExportPlugin);
+
+document.getElementById('exportCSV').addEventListener('click', () => {
+  table.exportCSV('users');
+});
+
+document.getElementById('exportJSON').addEventListener('click', () => {
+  table.exportJSON('users');
+});
+
+document.getElementById('exportSelected').addEventListener('click', () => {
+  const selected = table.getSelected();
+  if (selected.length === 0) {
+    alert('Select some rows first');
+    return;
+  }
+  table.exportCSV('selected-users', true);
+});
+```
+
+## Example: With Date in Filename
+
+```javascript
+const table = new BWDataTable('#table', { data }).use(ExportPlugin);
+
+function exportWithDate() {
+  const date = new Date().toISOString().split('T')[0];
+  table.exportCSV(`users-${date}`);
+  // Downloads: users-2024-01-15.csv
+}
+```
+
+## TypeScript
+
+```typescript
 import { BWDataTable } from '@bw-ui/datatable';
-import { ExportPlugin } from '@bw-ui/datatable-export';
-import { HistoryPlugin } from '@bw-ui/datatable-history';
+import { ExportPlugin, ExportPluginOptions } from '@bw-ui/datatable-export';
 
-const table = new BWDataTable('#table', { data: myData })
-  .use(ExportPlugin)
-  .use(HistoryPlugin);
+const options: ExportPluginOptions = {
+  filename: 'report',
+  includeHeaders: true,
+};
 
-// Edit, undo, then export
-table.undo();
-table.exportCSV();
+const table = new BWDataTable('#table', { data }).use(ExportPlugin, options);
+
+table.on('export:complete', ({ format, filename, count }) => {
+  // Typed event data
+});
 ```
 
-## 📁 What's Included
+## Notes
 
-```
-dist/
-├── export.min.js       # IIFE build (for <script>)
-└── export.esm.min.js   # ESM build (for import)
-```
+- Exports are generated client-side (no server required)
+- Large exports may take a moment to generate
+- File downloads via browser's native download mechanism
+- Respects current filter (exports filtered data)
 
-## 🔗 Related Packages
+## License
 
-| Package                                                                                | Description     |
-| -------------------------------------------------------------------------------------- | --------------- |
-| [@bw-ui/datatable](https://www.npmjs.com/package/@bw-ui/datatable)                     | Core (required) |
-| [@bw-ui/datatable-history](https://www.npmjs.com/package/@bw-ui/datatable-history)     | Undo/Redo       |
-| [@bw-ui/datatable-url-state](https://www.npmjs.com/package/@bw-ui/datatable-url-state) | URL sync        |
-| [@bw-ui/datatable-clipboard](https://www.npmjs.com/package/@bw-ui/datatable-clipboard) | Copy/Paste      |
-
-## 📄 License
-
-MIT © [BW UI](https://github.com/bw-ui)
-
-## 🐛 Issues
-
-Found a bug? [Report it here](https://github.com/bw-ui/bw-datatable/issues)
+MIT © [BW UI](https://github.com/AshwinPavanKadha/bw-ui)

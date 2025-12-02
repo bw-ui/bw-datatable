@@ -1,249 +1,187 @@
 /**
- * ============================================================================
- * Black & White UI Engineering
- * BWDataTable - ClipboardPlugin
- * ============================================================================
- *
- * Copy/Paste functionality for DataTable.
+ * BWDataTable v3 - ClipboardPlugin
+ * Copy/Paste with Excel compatibility
  *
  * Features:
- * - Copy selected rows (Ctrl+C / Cmd+C)
- * - Paste from Excel/Sheets (Ctrl+V / Cmd+V)
+ * - Ctrl+C / Cmd+C to copy selected rows
+ * - Ctrl+V / Cmd+V to paste
  * - Tab-separated format (Excel compatible)
- * - Smart paste (maps to visible columns)
- *
- * Keyboard:
- * - Ctrl+C / Cmd+C → Copy selected rows
- * - Ctrl+V / Cmd+V → Paste clipboard data
- *
- * Events Emitted:
- * - clipboard:copy   → After copy
- * - clipboard:paste  → After paste
- *
- * @module plugins/clipboard/ClipboardPlugin
- * @version 1.0.0
- * @license MIT
- * ============================================================================
  */
 
 const DEFAULTS = {
+  copyHeaders: true,
   shortcuts: true,
-  copyHeaders: false,
-  pasteMode: 'replace', // 'replace' | 'append'
 };
 
 export const ClipboardPlugin = {
   name: 'clipboard',
 
   init(api) {
-    const { eventBus, table, getState, options: pluginOptions } = api;
+    const { eventBus, table, options: pluginOptions } = api;
+
+    if (!table) {
+      console.error('ClipboardPlugin: table is undefined');
+      return;
+    }
+
     const opts = { ...DEFAULTS, ...pluginOptions };
-
-    /** @type {Function|null} - Keyboard handler reference */
     let keyboardHandler = null;
-
-    // =========================================================================
-    // HELPER FUNCTIONS
-    // =========================================================================
-
-    /**
-     * Get cell value for copy
-     * @param {Object} row - Row data
-     * @param {Object} column - Column definition
-     * @returns {string} Cell value as string
-     */
-    function getCellValue(row, column) {
-      const field = column.field || column.id;
-      let value;
-
-      if (field.includes('.')) {
-        value = field.split('.').reduce((obj, key) => obj?.[key], row);
-      } else {
-        value = row[field];
-      }
-
-      return value == null ? '' : String(value);
-    }
-
-    /**
-     * Parse clipboard text to rows
-     * @param {string} text - Clipboard text
-     * @returns {Array<Array<string>>} Parsed rows
-     */
-    function parseClipboardText(text) {
-      const lines = text.trim().split(/\r?\n/);
-      return lines.map((line) => line.split('\t'));
-    }
 
     // =========================================================================
     // COPY
     // =========================================================================
 
-    /**
-     * Copy selected rows to clipboard
-     * @param {Object} copyOpts - Copy options
-     * @returns {Promise<boolean>} Success
-     */
-    async function copy(copyOpts = {}) {
-      const mergedOpts = { ...opts, ...copyOpts };
-      const selected = table.getSelected();
+    function copy(selectedOnly = true) {
+      const state = table.getState();
+      const columns = state.columns || [];
 
-      if (selected.length === 0) {
-        console.warn('ClipboardPlugin: No rows selected');
+      let data;
+      if (selectedOnly) {
+        const selected = table.getSelected ? table.getSelected() : [];
+        data = selected;
+        console.log('[Clipboard] Copying selected rows:', data.length);
+      } else {
+        data = table.getFilteredData ? table.getFilteredData() : [];
+        console.log('[Clipboard] Copying all rows:', data.length);
+      }
+
+      if (!data || data.length === 0) {
+        console.warn('[Clipboard] No data to copy - select some rows first!');
         return false;
       }
 
-      const columns = table.getVisibleColumns();
-      const lines = [];
+      const rows = [];
 
       // Headers
-      if (mergedOpts.copyHeaders) {
-        const headerRow = columns.map((col) => col.header || col.id);
-        lines.push(headerRow.join('\t'));
+      if (opts.copyHeaders) {
+        const headerRow = columns.map((col) => col.header || col.id).join('\t');
+        rows.push(headerRow);
       }
 
       // Data rows
-      selected.forEach((row) => {
-        const rowData = columns.map((col) => getCellValue(row, col));
-        lines.push(rowData.join('\t'));
-      });
+      for (const row of data) {
+        const cells = columns.map((col) => {
+          const value = row[col.field || col.id];
+          if (value === null || value === undefined) return '';
+          return String(value).replace(/\t/g, ' ').replace(/\n/g, ' ');
+        });
+        rows.push(cells.join('\t'));
+      }
 
-      const content = lines.join('\n');
+      const text = rows.join('\n');
 
-      try {
-        await navigator.clipboard.writeText(content);
-
-        eventBus.emit('clipboard:copy', {
-          rowCount: selected.length,
-          content,
+      navigator.clipboard
+        .writeText(text)
+        .then(() => {
+          console.log('[Clipboard] Copied to clipboard!');
+          if (eventBus && eventBus.emit) {
+            eventBus.emit('clipboard:copy', { count: data.length, text });
+          }
+        })
+        .catch((err) => {
+          console.error('[Clipboard] Failed to copy:', err);
         });
 
-        return true;
-      } catch (err) {
-        console.error('ClipboardPlugin: Copy failed', err);
-        return false;
-      }
+      return true;
     }
 
     // =========================================================================
     // PASTE
     // =========================================================================
 
-    /**
-     * Paste clipboard data into table
-     * @param {Object} pasteOpts - Paste options
-     * @returns {Promise<boolean>} Success
-     */
-    async function paste(pasteOpts = {}) {
-      const mergedOpts = { ...opts, ...pasteOpts };
-
-      let text;
-      try {
-        text = await navigator.clipboard.readText();
-      } catch (err) {
-        console.error(
-          'ClipboardPlugin: Paste failed - clipboard access denied',
-          err
-        );
-        return false;
-      }
-
-      if (!text.trim()) {
-        console.warn('ClipboardPlugin: Clipboard is empty');
-        return false;
-      }
-
-      const parsedRows = parseClipboardText(text);
-      const columns = table.getVisibleColumns();
-      const state = getState();
-
-      // Emit before event (can cancel)
-      const result = eventBus.emit('clipboard:before-paste', {
-        parsedRows,
-        columns,
-      });
-
-      if (result === false) return false;
-
-      // Convert parsed rows to data objects
-      const newRows = parsedRows.map((cells) => {
-        const row = {};
-        columns.forEach((col, index) => {
-          if (index < cells.length) {
-            const field = col.field || col.id;
-            let value = cells[index];
-
-            // Type conversion - only if valid
-            if (col.type === 'number') {
-              const num = parseFloat(value);
-              value = isNaN(num) ? value : num;
-            } else if (col.type === 'boolean') {
-              const lower = value.toLowerCase();
-              if (
-                lower === 'true' ||
-                lower === 'false' ||
-                value === '1' ||
-                value === '0' ||
-                value === '✓'
-              ) {
-                value = lower === 'true' || value === '1' || value === '✓';
-              }
-            }
-
-            // Handle nested fields
-            if (field.includes('.')) {
-              const keys = field.split('.');
-              let obj = row;
-              for (let i = 0; i < keys.length - 1; i++) {
-                obj[keys[i]] = obj[keys[i]] || {};
-                obj = obj[keys[i]];
-              }
-              obj[keys[keys.length - 1]] = value;
-            } else {
-              row[field] = value;
-            }
+    function paste() {
+      navigator.clipboard
+        .readText()
+        .then((text) => {
+          if (!text || !text.trim()) {
+            console.log('[Clipboard] Nothing to paste');
+            return;
           }
-        });
 
-        // Generate ID if needed
-        if (!row.id) {
-          row.id = `paste_${Date.now()}_${Math.random()
-            .toString(36)
-            .slice(2, 9)}`;
-        }
+          const state = table.getState();
+          const columns = state.columns || [];
 
-        return row;
-      });
+          const lines = text.trim().split('\n');
+          const parsedRows = [];
 
-      // Apply paste
-      let updatedData;
-      if (mergedOpts.pasteMode === 'append') {
-        updatedData = [...state.data, ...newRows];
-      } else {
-        // Replace mode - replace selected rows or append if none selected
-        const selectedIds = new Set(table.getSelectedIds());
-        if (selectedIds.size > 0) {
-          // Remove selected rows and add new ones
-          updatedData = state.data.filter((row) => {
-            const rowId = row.id || row.__bw_id;
-            return !selectedIds.has(String(rowId));
+          // Check if first row is headers (matches our columns)
+          let startIndex = 0;
+          const firstLine = lines[0].split('\t');
+          const headerMatch = columns.every((col, i) => {
+            const header = col.header || col.id;
+            return (
+              firstLine[i] &&
+              firstLine[i].trim().toLowerCase() === header.toLowerCase()
+            );
           });
-          updatedData = [...updatedData, ...newRows];
-        } else {
-          updatedData = [...state.data, ...newRows];
-        }
-      }
 
-      // Update table
-      table.setData(updatedData);
+          if (headerMatch) {
+            startIndex = 1; // Skip header row
+            console.log('[Clipboard] Detected header row, skipping');
+          }
 
-      eventBus.emit('clipboard:paste', {
-        rowCount: newRows.length,
-        rows: newRows,
-        mode: mergedOpts.pasteMode,
-      });
+          // Parse data rows
+          for (let i = startIndex; i < lines.length; i++) {
+            const cells = lines[i].split('\t');
+            const rowData = {};
 
-      return true;
+            columns.forEach((col, colIndex) => {
+              const field = col.field || col.id;
+              let value = cells[colIndex] || '';
+
+              // Type conversion
+              if (col.type === 'number') {
+                const num = parseFloat(value.replace(/,/g, ''));
+                value = isNaN(num) ? 0 : num;
+              } else if (col.type === 'boolean') {
+                value =
+                  value.toLowerCase() === 'true' ||
+                  value === '1' ||
+                  value === '✓';
+              }
+
+              rowData[field] = value;
+            });
+
+            // Generate ID if needed
+            if (!rowData.id) {
+              rowData.id = `pasted_${Date.now()}_${i}`;
+            }
+
+            parsedRows.push(rowData);
+          }
+
+          console.log('[Clipboard] Parsed rows to paste:', parsedRows.length);
+
+          if (parsedRows.length === 0) {
+            console.log('[Clipboard] No valid rows to paste');
+            return;
+          }
+
+          // Add rows to table
+          const currentData = table.getData ? table.getData() : [];
+          const newData = [...currentData, ...parsedRows];
+
+          if (table.setData) {
+            table.setData(newData);
+            console.log(
+              '[Clipboard] Added',
+              parsedRows.length,
+              'rows to table'
+            );
+          }
+
+          if (eventBus && eventBus.emit) {
+            eventBus.emit('clipboard:paste', {
+              rows: parsedRows,
+              count: parsedRows.length,
+              text,
+            });
+          }
+        })
+        .catch((err) => {
+          console.error('[Clipboard] Failed to paste:', err);
+        });
     }
 
     // =========================================================================
@@ -252,9 +190,6 @@ export const ClipboardPlugin = {
 
     if (opts.shortcuts) {
       keyboardHandler = (e) => {
-        // Skip if editing input
-        if (e.target.matches('input, textarea, select')) return;
-
         const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
         const modifier = isMac ? e.metaKey : e.ctrlKey;
 
@@ -263,17 +198,24 @@ export const ClipboardPlugin = {
         const key = e.key.toLowerCase();
 
         // Ctrl+C / Cmd+C = Copy
-        if (key === 'c' || e.keyCode === 67) {
+        if (key === 'c' && !e.shiftKey) {
+          // Allow copy even in inputs for now, but prefer selected rows
           e.preventDefault();
           e.stopPropagation();
-          setTimeout(() => copy(), 10); // Small delay
+          console.log('[Clipboard] Copy triggered');
+          copy(true);
           return;
         }
 
         // Ctrl+V / Cmd+V = Paste
-        if (key === 'v' || e.keyCode === 86) {
+        if (key === 'v' && !e.shiftKey) {
+          // Skip paste if in input (let browser handle)
+          if (e.target.matches('input, textarea, select, [contenteditable]'))
+            return;
+
           e.preventDefault();
           e.stopPropagation();
+          console.log('[Clipboard] Paste triggered');
           paste();
           return;
         }
@@ -288,26 +230,26 @@ export const ClipboardPlugin = {
 
     table.copy = copy;
     table.paste = paste;
+    table.copyAll = () => copy(false);
 
     // =========================================================================
-    // PLUGIN INSTANCE
+    // RETURN PLUGIN INSTANCE
     // =========================================================================
 
     return {
+      name: 'clipboard',
       copy,
       paste,
+      copyAll: () => copy(false),
       destroy() {
         if (keyboardHandler) {
           document.removeEventListener('keydown', keyboardHandler, true);
         }
+        delete table.copy;
+        delete table.paste;
+        delete table.copyAll;
       },
     };
-  },
-
-  destroy(instance) {
-    if (instance && typeof instance.destroy === 'function') {
-      instance.destroy();
-    }
   },
 };
 

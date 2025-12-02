@@ -1,339 +1,202 @@
 /**
- * ============================================================================
- * Black & White UI Engineering
- * BWDataTable - ExportPlugin
- * ============================================================================
- *
- * Export functionality for DataTable.
- *
+ * BWDataTable v3 - ExportPlugin
+ * Export to CSV/JSON
+ * 
  * Features:
+ * - Export to CSV with proper escaping
  * - Export to JSON
- * - Export to CSV
+ * - Export selected rows only or all filtered data
  * - Copy to clipboard
- * - Selected rows only option
- * - Visible columns only option
- *
- * Events from Core:
- * - Uses table.getData(), table.getSelected(), table.getVisibleColumns()
- *
- * Events Emitted:
- * - export:before  → Before export (can cancel)
- * - export:after   → After export complete
- *
- * @module plugins/export/ExportPlugin
- * @version 1.0.0
- * @license MIT
- * ============================================================================
  */
 
 const DEFAULTS = {
-  filename: 'data',
+  filename: 'export',
   includeHeaders: true,
   selectedOnly: false,
-  visibleOnly: true,
-  csvDelimiter: ',',
-  csvQuote: '"',
 };
 
 export const ExportPlugin = {
   name: 'export',
 
   init(api) {
-    const { eventBus, table, getState, options: pluginOptions } = api;
+    const { eventBus, table, options: pluginOptions } = api;
+    
+    if (!table) {
+      console.error('ExportPlugin: table is undefined');
+      return;
+    }
+    
     const opts = { ...DEFAULTS, ...pluginOptions };
 
     // =========================================================================
-    // HELPER FUNCTIONS
+    // HELPERS
     // =========================================================================
 
-    /**
-     * Get rows to export based on options
-     * @param {Object} exportOpts - Export options
-     * @returns {Array} Rows to export
-     */
-    function getRows(exportOpts) {
-      const useSelected = exportOpts.selectedOnly ?? opts.selectedOnly;
-      return useSelected ? table.getSelected() : table.getData();
-    }
-
-    /**
-     * Get columns to export based on options
-     * @param {Object} exportOpts - Export options
-     * @returns {Array} Columns to export
-     */
-    function getColumns(exportOpts) {
-      const useVisible = exportOpts.visibleOnly ?? opts.visibleOnly;
-      const state = getState();
-      
-      if (useVisible) {
-        return table.getVisibleColumns();
+    function getExportData(selectedOnly = false) {
+      if (selectedOnly) {
+        return table.getSelected ? table.getSelected() : [];
       }
-      return state.columns;
+      return table.getFilteredData ? table.getFilteredData() : [];
     }
 
-    /**
-     * Get cell value for export
-     * @param {Object} row - Row data
-     * @param {Object} column - Column definition
-     * @returns {*} Cell value
-     */
-    function getCellValue(row, column) {
-      // Use field path or column id
-      const field = column.field || column.id;
-      
-      if (field.includes('.')) {
-        // Nested field
-        return field.split('.').reduce((obj, key) => obj?.[key], row);
-      }
-      
-      return row[field];
+    function getColumns() {
+      const state = table.getState();
+      return state.columns || [];
     }
 
-    /**
-     * Download file
-     * @param {string} content - File content
-     * @param {string} filename - Filename
-     * @param {string} mimeType - MIME type
-     */
     function downloadFile(content, filename, mimeType) {
       const blob = new Blob([content], { type: mimeType });
       const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      
-      link.href = url;
-      link.download = filename;
-      link.style.display = 'none';
-      
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
     }
 
-    /**
-     * Escape CSV value
-     * @param {*} value - Value to escape
-     * @param {string} delimiter - CSV delimiter
-     * @param {string} quote - Quote character
-     * @returns {string} Escaped value
-     */
-    function escapeCSV(value, delimiter, quote) {
-      if (value == null) return '';
-      
+    function escapeCSV(value) {
+      if (value === null || value === undefined) return '';
       const str = String(value);
-      
-      // Check if escaping needed
-      if (str.includes(quote) || str.includes(delimiter) || str.includes('\n') || str.includes('\r')) {
-        return quote + str.replace(new RegExp(quote, 'g'), quote + quote) + quote;
+      // If contains comma, newline, or quote - wrap in quotes and escape quotes
+      if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+        return `"${str.replace(/"/g, '""')}"`;
       }
-      
       return str;
     }
 
     // =========================================================================
-    // EXPORT FUNCTIONS
+    // CSV EXPORT
     // =========================================================================
 
-    /**
-     * Export to JSON
-     * @param {Object} exportOpts - Override options
-     * @returns {boolean} Success
-     */
-    function exportJSON(exportOpts = {}) {
-      const mergedOpts = { ...opts, ...exportOpts };
-      const rows = getRows(mergedOpts);
-      const columns = getColumns(mergedOpts);
-      
-      // Emit before event
-      const result = eventBus.emit('export:before', {
-        format: 'json',
-        rows,
-        columns,
-        options: mergedOpts,
-      });
-      
-      if (result === false) return false;
-      
-      // Build export data
-      const data = rows.map(row => {
-        const obj = {};
-        columns.forEach(col => {
-          obj[col.id] = getCellValue(row, col);
-        });
-        return obj;
-      });
-      
-      // Download
-      const content = JSON.stringify(data, null, 2);
-      const filename = `${mergedOpts.filename}.json`;
-      downloadFile(content, filename, 'application/json');
-      
-      // Emit after event
-      eventBus.emit('export:after', {
-        format: 'json',
-        filename,
-        rowCount: data.length,
-      });
-      
-      return true;
-    }
+    function exportCSV(options = {}) {
+      const config = { ...opts, ...options };
+      const data = getExportData(config.selectedOnly);
+      const columns = getColumns();
 
-    /**
-     * Export to CSV
-     * @param {Object} exportOpts - Override options
-     * @returns {boolean} Success
-     */
-    function exportCSV(exportOpts = {}) {
-      const mergedOpts = { ...opts, ...exportOpts };
-      const rows = getRows(mergedOpts);
-      const columns = getColumns(mergedOpts);
-      const delimiter = mergedOpts.csvDelimiter;
-      const quote = mergedOpts.csvQuote;
-      
-      // Emit before event
-      const result = eventBus.emit('export:before', {
-        format: 'csv',
-        rows,
-        columns,
-        options: mergedOpts,
-      });
-      
-      if (result === false) return false;
-      
-      // Build CSV lines
-      const lines = [];
-      
-      // Headers
-      if (mergedOpts.includeHeaders) {
-        const headerRow = columns.map(col => escapeCSV(col.header || col.id, delimiter, quote));
-        lines.push(headerRow.join(delimiter));
-      }
-      
-      // Data rows
-      rows.forEach(row => {
-        const rowData = columns.map(col => escapeCSV(getCellValue(row, col), delimiter, quote));
-        lines.push(rowData.join(delimiter));
-      });
-      
-      // Download
-      const content = lines.join('\n');
-      const filename = `${mergedOpts.filename}.csv`;
-      downloadFile(content, filename, 'text/csv;charset=utf-8;');
-      
-      // Emit after event
-      eventBus.emit('export:after', {
-        format: 'csv',
-        filename,
-        rowCount: rows.length,
-      });
-      
-      return true;
-    }
-
-    /**
-     * Copy to clipboard
-     * @param {Object} exportOpts - Override options
-     * @returns {Promise<boolean>} Success
-     */
-    async function copyToClipboard(exportOpts = {}) {
-      const mergedOpts = { ...opts, ...exportOpts };
-      const rows = getRows(mergedOpts);
-      const columns = getColumns(mergedOpts);
-      
-      // Emit before event
-      const result = eventBus.emit('export:before', {
-        format: 'clipboard',
-        rows,
-        columns,
-        options: mergedOpts,
-      });
-      
-      if (result === false) return false;
-      
-      // Build tab-separated text (Excel compatible)
-      const lines = [];
-      
-      // Headers
-      if (mergedOpts.includeHeaders) {
-        const headerRow = columns.map(col => col.header || col.id);
-        lines.push(headerRow.join('\t'));
-      }
-      
-      // Data rows
-      rows.forEach(row => {
-        const rowData = columns.map(col => {
-          const value = getCellValue(row, col);
-          return value == null ? '' : String(value);
-        });
-        lines.push(rowData.join('\t'));
-      });
-      
-      const content = lines.join('\n');
-      
-      // Copy to clipboard
-      try {
-        await navigator.clipboard.writeText(content);
-        
-        // Emit after event
-        eventBus.emit('export:after', {
-          format: 'clipboard',
-          rowCount: rows.length,
-        });
-        
-        return true;
-      } catch (err) {
-        console.error('Failed to copy to clipboard:', err);
+      if (data.length === 0) {
+        console.warn('ExportPlugin: No data to export');
         return false;
       }
+
+      const rows = [];
+
+      // Headers
+      if (config.includeHeaders) {
+        const headers = columns.map(col => escapeCSV(col.header || col.id));
+        rows.push(headers.join(','));
+      }
+
+      // Data rows
+      for (const row of data) {
+        const cells = columns.map(col => {
+          const value = row[col.field || col.id];
+          return escapeCSV(value);
+        });
+        rows.push(cells.join(','));
+      }
+
+      const csv = rows.join('\n');
+      const filename = `${config.filename}.csv`;
+      downloadFile(csv, filename, 'text/csv;charset=utf-8;');
+      
+      if (eventBus && eventBus.emit) {
+        eventBus.emit('export:csv', { count: data.length, filename });
+      }
+      
+      return true;
     }
 
-    /**
-     * Get export data as object (for custom processing)
-     * @param {Object} exportOpts - Override options
-     * @returns {Object} Export data
-     */
-    function getExportData(exportOpts = {}) {
-      const mergedOpts = { ...opts, ...exportOpts };
-      const rows = getRows(mergedOpts);
-      const columns = getColumns(mergedOpts);
+    // =========================================================================
+    // JSON EXPORT
+    // =========================================================================
+
+    function exportJSON(options = {}) {
+      const config = { ...opts, ...options };
+      const data = getExportData(config.selectedOnly);
+
+      if (data.length === 0) {
+        console.warn('ExportPlugin: No data to export');
+        return false;
+      }
+
+      const json = JSON.stringify(data, null, 2);
+      const filename = `${config.filename}.json`;
+      downloadFile(json, filename, 'application/json');
       
-      return {
-        rows,
-        columns,
-        data: rows.map(row => {
-          const obj = {};
-          columns.forEach(col => {
-            obj[col.id] = getCellValue(row, col);
-          });
-          return obj;
-        }),
-      };
+      if (eventBus && eventBus.emit) {
+        eventBus.emit('export:json', { count: data.length, filename });
+      }
+      
+      return true;
+    }
+
+    // =========================================================================
+    // CLIPBOARD
+    // =========================================================================
+
+    function copyToClipboard(options = {}) {
+      const config = { ...opts, ...options };
+      const data = getExportData(config.selectedOnly);
+      const columns = getColumns();
+
+      if (data.length === 0) {
+        console.warn('ExportPlugin: No data to copy');
+        return false;
+      }
+
+      const rows = [];
+
+      if (config.includeHeaders) {
+        rows.push(columns.map(col => col.header || col.id).join('\t'));
+      }
+
+      for (const row of data) {
+        const cells = columns.map(col => {
+          const value = row[col.field || col.id];
+          return value === null || value === undefined ? '' : String(value);
+        });
+        rows.push(cells.join('\t'));
+      }
+
+      const text = rows.join('\n');
+      
+      navigator.clipboard.writeText(text).then(() => {
+        if (eventBus && eventBus.emit) {
+          eventBus.emit('export:clipboard', { count: data.length });
+        }
+      }).catch(err => {
+        console.error('ExportPlugin: Failed to copy', err);
+      });
+      
+      return true;
     }
 
     // =========================================================================
     // EXTEND TABLE API
     // =========================================================================
 
-    table.exportJSON = exportJSON;
     table.exportCSV = exportCSV;
+    table.exportJSON = exportJSON;
     table.copyToClipboard = copyToClipboard;
-    table.getExportData = getExportData;
 
     // =========================================================================
-    // PLUGIN INSTANCE
+    // RETURN PLUGIN INSTANCE
     // =========================================================================
 
     return {
-      exportJSON,
+      name: 'export',
       exportCSV,
+      exportJSON,
       copyToClipboard,
-      getExportData,
+      destroy() {
+        delete table.exportCSV;
+        delete table.exportJSON;
+        delete table.copyToClipboard;
+      },
     };
-  },
-
-  destroy(instance) {
-    // No cleanup needed
   },
 };
 

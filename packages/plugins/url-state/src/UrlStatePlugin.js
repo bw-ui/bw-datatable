@@ -1,43 +1,17 @@
 /**
- * ============================================================================
- * Black & White UI Engineering
- * BWDataTable - UrlStatePlugin
- * ============================================================================
- *
- * URL state sync for DataTable.
- *
+ * BWDataTable v3 - UrlStatePlugin
+ * Sync table state with URL
+ * 
  * Features:
- * - Sync sort, filter, page to URL
+ * - Sync sort state to URL (?sort=name:asc)
+ * - Sync search/filter to URL (?search=john)
  * - Restore state from URL on load
  * - Browser back/forward support
- * - Shareable links
- *
- * URL Format:
- * - ?page=2
- * - ?sort=name:asc
- * - ?filter_role=Admin
- * - ?search=john
- *
- * Events from Core:
- * - sort:after   → Update URL
- * - filter:after → Update URL
- * - state:change → Update URL (for page)
- *
- * Events Emitted:
- * - urlstate:change → URL state changed
- * - urlstate:restore → State restored from URL
- *
- * @module plugins/url-state/UrlStatePlugin
- * @version 1.0.0
- * @license MIT
- * ============================================================================
  */
 
 const DEFAULTS = {
-  prefix: '', // URL param prefix (e.g., 'table_')
-  pushState: true, // Use pushState (true) or replaceState (false)
-  watchPopState: true, // Listen for browser back/forward
-  syncPage: true,
+  prefix: '',
+  pushState: true,
   syncSort: true,
   syncFilter: true,
   syncSearch: true,
@@ -47,45 +21,52 @@ export const UrlStatePlugin = {
   name: 'url-state',
 
   init(api) {
-    const { eventBus, table, getState, options: pluginOptions } = api;
+    const { eventBus, table, options: pluginOptions } = api;
+    
+    if (!table) {
+      console.error('UrlStatePlugin: table is undefined');
+      return;
+    }
+    
+    if (!eventBus) {
+      console.error('UrlStatePlugin: eventBus is undefined');
+      return;
+    }
+    
     const opts = { ...DEFAULTS, ...pluginOptions };
-
-    /** @type {boolean} - Flag to prevent circular updates */
-    let isUpdating = false;
+    let isRestoring = false;
+    let popstateHandler = null;
 
     // =========================================================================
     // URL HELPERS
     // =========================================================================
 
-    /**
-     * Get prefixed param name
-     * @param {string} name - Param name
-     * @returns {string} Prefixed name
-     */
-    function param(name) {
-      return opts.prefix + name;
+    function getParam(key) {
+      const params = new URLSearchParams(window.location.search);
+      return params.get(opts.prefix + key);
     }
 
-    /**
-     * Get current URL params
-     * @returns {URLSearchParams}
-     */
-    function getParams() {
-      return new URLSearchParams(window.location.search);
-    }
+    function setParams(updates) {
+      const params = new URLSearchParams(window.location.search);
+      
+      for (const [key, value] of Object.entries(updates)) {
+        const fullKey = opts.prefix + key;
+        if (value === null || value === undefined || value === '') {
+          params.delete(fullKey);
+        } else {
+          params.set(fullKey, String(value));
+        }
+      }
 
-    /**
-     * Update URL with params
-     * @param {URLSearchParams} params
-     */
-    function updateUrl(params) {
-      const url = new URL(window.location.href);
-      url.search = params.toString();
+      const queryString = params.toString();
+      const newUrl = queryString 
+        ? `${window.location.pathname}?${queryString}`
+        : window.location.pathname;
 
       if (opts.pushState) {
-        window.history.pushState({}, '', url);
+        window.history.pushState({}, '', newUrl);
       } else {
-        window.history.replaceState({}, '', url);
+        window.history.replaceState({}, '', newUrl);
       }
     }
 
@@ -93,277 +74,140 @@ export const UrlStatePlugin = {
     // STATE TO URL
     // =========================================================================
 
-    /**
-     * Sync current table state to URL
-     */
-    function syncToUrl() {
-      if (isUpdating) return;
+    function updateUrl() {
+      if (isRestoring) return;
 
-      const state = getState();
-      const params = getParams();
-
-      // Clear existing table params
-      for (const key of [...params.keys()]) {
-        if (key.startsWith(opts.prefix)) {
-          params.delete(key);
-        }
-      }
-
-      // Page
-      if (opts.syncPage && state.page > 0) {
-        params.set(param('page'), state.page + 1); // 1-indexed for URL
-      }
+      const state = table.getState();
+      const updates = {};
 
       // Sort
-      if (opts.syncSort && state.sort.length > 0) {
-        const sortStr = state.sort.map((s) => `${s.column}:${s.dir}`).join(',');
-        params.set(param('sort'), sortStr);
-      }
-
-      // Global search
-      if (opts.syncSearch && state.globalFilter) {
-        params.set(param('search'), state.globalFilter);
-      }
-
-      // Column filters
-      if (opts.syncFilter && Object.keys(state.filters).length > 0) {
-        for (const [col, value] of Object.entries(state.filters)) {
-          params.set(param(`filter_${col}`), value);
+      if (opts.syncSort) {
+        if (state.sort && state.sort.column && state.sort.direction) {
+          updates.sort = `${state.sort.column}:${state.sort.direction}`;
+        } else {
+          updates.sort = null;
         }
       }
 
-      updateUrl(params);
-      eventBus.emit('urlstate:change', { params: Object.fromEntries(params) });
+      // Search/Filter
+      if (opts.syncSearch || opts.syncFilter) {
+        if (state.globalFilter) {
+          updates.search = state.globalFilter;
+        } else {
+          updates.search = null;
+        }
+      }
+
+      setParams(updates);
+      
+      if (eventBus && eventBus.emit) {
+        eventBus.emit('urlstate:update', { updates });
+      }
     }
 
     // =========================================================================
     // URL TO STATE
     // =========================================================================
 
-    /**
-     * Restore table state from URL
-     */
-    function syncFromUrl() {
-      isUpdating = true;
+    function restoreFromUrl() {
+      isRestoring = true;
+      let restored = false;
 
-      const params = getParams();
-      const state = getState();
-      let hasChanges = false;
-
-      // Page
-      if (opts.syncPage) {
-        const pageParam = params.get(param('page'));
-        if (pageParam) {
-          const page = parseInt(pageParam, 10) - 1; // Convert to 0-indexed
-          if (page >= 0 && page !== state.page) {
-            table.goToPage(page);
-            hasChanges = true;
-          }
-        }
-      }
-
-      // Sort
-      if (opts.syncSort) {
-        const sortParam = params.get(param('sort'));
-        if (sortParam) {
-          const [column, dir] = sortParam.split(':');
-          if (column && (dir === 'asc' || dir === 'desc')) {
-            table.sort(column, dir);
-            hasChanges = true;
-          }
-        }
-      }
-
-      // Global search
-      if (opts.syncSearch) {
-        const searchParam = params.get(param('search'));
-        if (searchParam && searchParam !== state.globalFilter) {
-          table.filter('global', searchParam);
-          hasChanges = true;
-        }
-      }
-
-      // Column filters
-      if (opts.syncFilter) {
-        for (const [key, value] of params.entries()) {
-          const filterPrefix = param('filter_');
-          if (key.startsWith(filterPrefix)) {
-            const column = key.slice(filterPrefix.length);
-            if (state.filters[column] !== value) {
-              table.filter(column, value);
-              hasChanges = true;
+      try {
+        // Restore sort
+        if (opts.syncSort) {
+          const sortParam = getParam('sort');
+          if (sortParam && sortParam.includes(':')) {
+            const [column, direction] = sortParam.split(':');
+            if (column && (direction === 'asc' || direction === 'desc')) {
+              table.sort(column, direction);
+              restored = true;
             }
           }
         }
-      }
 
-      isUpdating = false;
-
-      if (hasChanges) {
-        eventBus.emit('urlstate:restore', {
-          params: Object.fromEntries(params),
-        });
-      }
-    }
-
-    // =========================================================================
-    // PUBLIC API
-    // =========================================================================
-
-    /**
-     * Get current state as URL params object
-     * @returns {Object} URL params
-     */
-    function getUrlState() {
-      const state = getState();
-      const result = {};
-
-      if (opts.syncPage && state.page > 0) {
-        result.page = state.page + 1;
-      }
-
-      if (opts.syncSort && state.sort.length > 0) {
-        result.sort = state.sort.map((s) => `${s.column}:${s.dir}`).join(',');
-      }
-
-      if (opts.syncSearch && state.globalFilter) {
-        result.search = state.globalFilter;
-      }
-
-      if (opts.syncFilter && Object.keys(state.filters).length > 0) {
-        for (const [col, value] of Object.entries(state.filters)) {
-          result[`filter_${col}`] = value;
+        // Restore search
+        if (opts.syncSearch || opts.syncFilter) {
+          const searchParam = getParam('search');
+          if (searchParam) {
+            table.filter(searchParam);
+            
+            // Also update the search input if exists
+            const searchInput = document.querySelector('.bw-datatable__search');
+            if (searchInput) {
+              searchInput.value = searchParam;
+            }
+            restored = true;
+          }
         }
-      }
 
-      return result;
-    }
-
-    /**
-     * Set state from URL params object
-     * @param {Object} params - URL params
-     */
-    function setUrlState(params) {
-      isUpdating = true;
-
-      if (params.page) {
-        table.goToPage(parseInt(params.page, 10) - 1);
-      }
-
-      if (params.sort) {
-        const [column, dir] = params.sort.split(':');
-        if (column && dir) {
-          table.sort(column, dir);
+        if (restored && eventBus && eventBus.emit) {
+          eventBus.emit('urlstate:restore', { 
+            sort: getParam('sort'),
+            search: getParam('search')
+          });
         }
+      } catch (err) {
+        console.error('UrlStatePlugin: Error restoring state', err);
       }
 
-      if (params.search) {
-        table.filter('global', params.search);
-      }
-
-      for (const [key, value] of Object.entries(params)) {
-        if (key.startsWith('filter_')) {
-          const column = key.slice(7);
-          table.filter(column, value);
-        }
-      }
-
-      isUpdating = false;
-      syncToUrl();
-    }
-
-    /**
-     * Clear URL state
-     */
-    function clearUrlState() {
-      const params = getParams();
-
-      for (const key of [...params.keys()]) {
-        if (key.startsWith(opts.prefix)) {
-          params.delete(key);
-        }
-      }
-
-      updateUrl(params);
-      eventBus.emit('urlstate:change', { params: {} });
+      isRestoring = false;
     }
 
     // =========================================================================
     // EVENT LISTENERS
     // =========================================================================
 
-    /** @type {number|null} - Debounce timer */
-    let syncTimer = null;
+    // Listen to sort changes
+    eventBus.on('sort', updateUrl);
+    eventBus.on('sort:after', updateUrl);
+    
+    // Listen to filter changes
+    eventBus.on('filter', updateUrl);
+    eventBus.on('filter:after', updateUrl);
+    eventBus.on('filter:clear', updateUrl);
 
-    /**
-     * Debounced sync to URL
-     */
-    function debouncedSync() {
-      if (syncTimer) clearTimeout(syncTimer);
-      syncTimer = setTimeout(() => {
-        syncToUrl();
-      }, 50);
-    }
+    // Handle browser back/forward
+    popstateHandler = () => {
+      restoreFromUrl();
+    };
+    window.addEventListener('popstate', popstateHandler);
 
-    // Sync on sort change
-    eventBus.on('sort:after', () => {
-      if (opts.syncSort) debouncedSync();
-    });
-
-    // Sync on filter change
-    eventBus.on('filter:after', () => {
-      if (opts.syncFilter || opts.syncSearch) debouncedSync();
-    });
-
-    // Sync on render (catches page changes)
-    eventBus.on('render:after', () => {
-      if (opts.syncPage) debouncedSync();
-    });
-
-    // Browser back/forward
-    let popStateHandler = null;
-    if (opts.watchPopState) {
-      popStateHandler = () => {
-        syncFromUrl();
-      };
-      window.addEventListener('popstate', popStateHandler);
-    }
-
-    // Restore state from URL on init
-    syncFromUrl();
+    // Initial restore from URL (with small delay to ensure table is ready)
+    setTimeout(() => {
+      restoreFromUrl();
+    }, 0);
 
     // =========================================================================
     // EXTEND TABLE API
     // =========================================================================
 
-    table.getUrlState = getUrlState;
-    table.setUrlState = setUrlState;
-    table.clearUrlState = clearUrlState;
-    table.syncUrlToState = syncFromUrl;
-    table.syncStateToUrl = syncToUrl;
+    table.getUrlState = () => ({
+      sort: getParam('sort'),
+      search: getParam('search'),
+    });
+    
+    table.updateUrl = updateUrl;
+    table.restoreFromUrl = restoreFromUrl;
 
     // =========================================================================
-    // PLUGIN INSTANCE
+    // RETURN PLUGIN INSTANCE
     // =========================================================================
 
     return {
-      getUrlState,
-      setUrlState,
-      clearUrlState,
-      syncFromUrl,
-      syncToUrl,
+      name: 'url-state',
+      updateUrl,
+      restoreFromUrl,
+      getUrlState: table.getUrlState,
       destroy() {
-        if (popStateHandler) {
-          window.removeEventListener('popstate', popStateHandler);
+        if (popstateHandler) {
+          window.removeEventListener('popstate', popstateHandler);
         }
+        delete table.getUrlState;
+        delete table.updateUrl;
+        delete table.restoreFromUrl;
       },
     };
-  },
-
-  destroy(instance) {
-    if (instance && typeof instance.destroy === 'function') {
-      instance.destroy();
-    }
   },
 };
 
